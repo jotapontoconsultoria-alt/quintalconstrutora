@@ -1,11 +1,22 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Clock3, HardHat, MapPin, Plus, Search, Trash2, X } from 'lucide-react'
+import { Camera, ChevronLeft, ChevronRight, Clock3, HardHat, ImagePlus, MapPin, Plus, Search, Star, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 
 export const STAGES = ['PROJETO', 'APROVAÇÃO', 'FUNDAÇÃO', 'ALVENARIA', 'INSTALAÇÕES', 'ESQUADRIAS', 'REVESTIMENTOS'] as const
 type Stage = (typeof STAGES)[number]
+
+type Foto = {
+  id: string
+  /** Imagem reduzida (até 1600 px) para a visualização ampliada. */
+  url: string
+  /** Miniatura leve (até 480 px) usada no card. */
+  thumb: string
+  /** ISO: quando a foto foi enviada. */
+  data: string
+  legenda: string
+}
 
 type Obra = {
   id: string
@@ -16,9 +27,53 @@ type Obra = {
   etapa: Stage
   /** ISO: quando a obra entrou na etapa atual. */
   desde: string
+  fotos: Foto[]
+  /** id da foto de capa; sem ele vale a primeira. */
+  capa?: string
 }
 
-type Draft = Omit<Obra, 'id' | 'desde'> & { id?: string }
+type Draft = Omit<Obra, 'id' | 'desde'> & { id?: string; novoId?: string }
+
+const BUCKET = 'obras-fotos'
+
+function capaDe(obra: Pick<Obra, 'fotos' | 'capa'>): Foto | undefined {
+  return obra.fotos.find((f) => f.id === obra.capa) ?? obra.fotos[0]
+}
+
+/** Reduz a imagem no navegador (corrige a rotação do celular) e devolve um JPEG leve. */
+async function reduzir(file: Blob, lado: number, qualidade: number): Promise<Blob> {
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+  const escala = Math.min(1, lado / Math.max(bitmap.width, bitmap.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(bitmap.width * escala))
+  canvas.height = Math.max(1, Math.round(bitmap.height * escala))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('canvas')
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob'))), 'image/jpeg', qualidade))
+}
+
+function paraDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+/** Caminho do arquivo dentro do bucket, a partir da URL pública (ou null para fotos que não estão no bucket). */
+function caminhoNoBucket(url: string): string | null {
+  const marca = `/object/public/${BUCKET}/`
+  const i = url.indexOf(marca)
+  return i === -1 ? null : decodeURIComponent(url.slice(i + marca.length).split('?')[0])
+}
+
+function formatarData(iso: string) {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).format(d)
+}
 
 /** Prazo esperado, em dias, para cada etapa (0 = sem prazo). */
 type Sla = Record<Stage, number>
@@ -35,7 +90,7 @@ const DEFAULT_SLA: Sla = {
 
 const BOARD_ID = 'default'
 const LOCAL_KEY = 'quintal-obras'
-const emptyDraft: Draft = { cliente: '', endereco: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO' }
+const emptyDraft: Draft = { cliente: '', endereco: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO', fotos: [] }
 
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
@@ -103,11 +158,27 @@ function sanitize(raw: unknown): Obra[] {
       empreiteiro: String(o.empreiteiro ?? ''),
       etapa: isStage(o.etapa) ? o.etapa : 'PROJETO',
       desde: typeof o.desde === 'string' ? o.desde : new Date().toISOString(),
+      fotos: sanitizeFotos(o.fotos),
+      capa: typeof o.capa === 'string' ? o.capa : undefined,
+    }))
+}
+
+function sanitizeFotos(raw: unknown): Foto[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((f): f is Record<string, unknown> => !!f && typeof f === 'object' && typeof (f as Record<string, unknown>).url === 'string')
+    .map((f) => ({
+      id: typeof f.id === 'string' ? f.id : newId(),
+      url: String(f.url),
+      thumb: typeof f.thumb === 'string' ? f.thumb : String(f.url),
+      data: typeof f.data === 'string' ? f.data : new Date().toISOString(),
+      legenda: typeof f.legenda === 'string' ? f.legenda : '',
     }))
 }
 
 function ObraCard({ obra, sla, agora, onOpen, onDragStart }: { obra: Obra; sla: Sla; agora: number; onOpen: (o: Obra) => void; onDragStart: (o: Obra) => void }) {
   const restantes = diasRestantes(obra, sla, agora)
+  const capa = capaDe(obra)
   return (
     <div
       role="button"
@@ -123,6 +194,10 @@ function ObraCard({ obra, sla, agora, onOpen, onDragStart }: { obra: Obra; sla: 
         }
       }}
     >
+      <div className={`obra-capa ${capa ? '' : 'vazia'}`}>
+        {capa ? <img src={capa.thumb} alt={capa.legenda || `Foto da obra de ${obra.cliente}`} loading="lazy" draggable={false} /> : <Camera aria-hidden="true" />}
+        {obra.fotos.length > 1 && <span className="obra-capa-n"><Camera aria-hidden="true" />{obra.fotos.length}</span>}
+      </div>
       <strong className="obra-cliente">{obra.cliente}</strong>
       <span className="obra-endereco"><MapPin aria-hidden="true" />{obra.endereco}</span>
       {obra.detalhes && <p className="obra-detalhes">{obra.detalhes}</p>}
@@ -149,6 +224,10 @@ export function ObrasBoard() {
   const [slaDraft, setSlaDraft] = useState<Sla | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [dragged, setDragged] = useState<Obra | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  const [viewer, setViewer] = useState<number | null>(null)
+  // Fotos enviadas / removidas durante a edição aberta: só viram definitivas ao salvar.
+  const sessaoFotos = useRef<{ novas: Foto[]; removidas: Foto[] }>({ novas: [], removidas: [] })
   const [toast, setToast] = useState('')
   const [agora, setAgora] = useState(() => Date.now())
   const skipNextSave = useRef(false)
@@ -242,17 +321,97 @@ export function ObrasBoard() {
     showToast(`${obra.cliente} → ${etapa}`)
   }
 
+  /** Apaga arquivos do bucket (melhor esforço: falhas não travam o app). */
+  const apagarArquivos = (fotos: Foto[]) => {
+    if (!supabase || fotos.length === 0) return
+    const caminhos = fotos.flatMap((f) => [caminhoNoBucket(f.url), caminhoNoBucket(f.thumb)]).filter((c): c is string => !!c)
+    if (caminhos.length > 0) void supabase.storage.from(BUCKET).remove(Array.from(new Set(caminhos))).catch(() => {})
+  }
+
+  const abrirNova = () => {
+    sessaoFotos.current = { novas: [], removidas: [] }
+    setDraft({ ...emptyDraft, novoId: newId() })
+  }
+
+  const abrirEdicao = (o: Obra) => {
+    sessaoFotos.current = { novas: [], removidas: [] }
+    setDraft({ id: o.id, cliente: o.cliente, endereco: o.endereco, detalhes: o.detalhes, empreiteiro: o.empreiteiro, etapa: o.etapa, fotos: o.fotos, capa: o.capa })
+  }
+
+  /** Fecha sem salvar: descarta o que foi enviado nesta sessão. */
+  const fecharDraft = () => {
+    apagarArquivos(sessaoFotos.current.novas)
+    sessaoFotos.current = { novas: [], removidas: [] }
+    setViewer(null)
+    setDraft(null)
+  }
+
+  const adicionarFotos = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !draft) return
+    const chave = draft.id ?? draft.novoId ?? newId()
+    setEnviando(true)
+    const novas: Foto[] = []
+    let falhas = 0
+    for (const file of Array.from(files)) {
+      try {
+        const id = newId()
+        let url: string
+        let thumb: string
+        if (supabase) {
+          const [grande, pequena] = await Promise.all([reduzir(file, 1600, 0.82), reduzir(file, 480, 0.75)])
+          const bucket = supabase.storage.from(BUCKET)
+          const pathGrande = `${chave}/${id}.jpg`
+          const pathThumb = `${chave}/${id}-thumb.jpg`
+          const [a, b] = await Promise.all([
+            bucket.upload(pathGrande, grande, { contentType: 'image/jpeg', cacheControl: '31536000' }),
+            bucket.upload(pathThumb, pequena, { contentType: 'image/jpeg', cacheControl: '31536000' }),
+          ])
+          if (a.error || b.error) throw a.error ?? b.error
+          url = bucket.getPublicUrl(pathGrande).data.publicUrl
+          thumb = bucket.getPublicUrl(pathThumb).data.publicUrl
+        } else {
+          // Modo local: sem banco, guarda versões menores no próprio navegador.
+          url = await paraDataUrl(await reduzir(file, 900, 0.7))
+          thumb = await paraDataUrl(await reduzir(file, 320, 0.7))
+        }
+        novas.push({ id, url, thumb, data: new Date().toISOString(), legenda: '' })
+      } catch {
+        falhas += 1
+      }
+    }
+    setEnviando(false)
+    if (novas.length > 0) {
+      sessaoFotos.current.novas.push(...novas)
+      setDraft((d) => (d ? { ...d, fotos: [...d.fotos, ...novas], capa: d.capa ?? d.fotos[0]?.id ?? novas[0].id } : d))
+    }
+    if (falhas > 0) showToast(falhas === 1 ? 'Não foi possível enviar 1 foto' : `Não foi possível enviar ${falhas} fotos`)
+  }
+
+  const removerFoto = (foto: Foto) => {
+    sessaoFotos.current.removidas.push(foto)
+    setViewer(null)
+    setDraft((d) => {
+      if (!d) return d
+      const fotos = d.fotos.filter((f) => f.id !== foto.id)
+      return { ...d, fotos, capa: d.capa === foto.id ? fotos[0]?.id : d.capa }
+    })
+  }
+
   const salvar = (e: React.FormEvent) => {
     e.preventDefault()
     if (!draft) return
-    const limpo = { ...draft, cliente: draft.cliente.trim(), endereco: draft.endereco.trim(), detalhes: draft.detalhes.trim(), empreiteiro: draft.empreiteiro.trim() }
+    const { novoId, id: _id, ...campos } = draft
+    const limpo = { ...campos, cliente: draft.cliente.trim(), endereco: draft.endereco.trim(), detalhes: draft.detalhes.trim(), empreiteiro: draft.empreiteiro.trim() }
     if (draft.id) {
       setObras((items) => items.map((o) => (o.id === draft.id ? { ...o, ...limpo, id: o.id, desde: o.etapa === limpo.etapa ? o.desde : new Date().toISOString() } : o)))
       showToast('Obra atualizada')
     } else {
-      setObras((items) => [...items, { ...limpo, id: newId(), desde: new Date().toISOString() }])
+      setObras((items) => [...items, { ...limpo, id: novoId ?? newId(), desde: new Date().toISOString() }])
       showToast('Obra adicionada')
     }
+    apagarArquivos(sessaoFotos.current.removidas)
+    sessaoFotos.current = { novas: [], removidas: [] }
+    setViewer(null)
     setDraft(null)
   }
 
@@ -267,7 +426,11 @@ export function ObrasBoard() {
   const excluir = () => {
     if (!draft?.id) return
     if (!window.confirm(`Excluir a obra de ${draft.cliente}? Essa ação não pode ser desfeita.`)) return
+    const original = obras.find((o) => o.id === draft.id)
+    apagarArquivos([...(original?.fotos ?? []), ...sessaoFotos.current.novas])
+    sessaoFotos.current = { novas: [], removidas: [] }
     setObras((items) => items.filter((o) => o.id !== draft.id))
+    setViewer(null)
     setDraft(null)
     showToast('Obra excluída')
   }
@@ -297,7 +460,7 @@ export function ObrasBoard() {
               {empreiteiros.map((n) => <option key={n}>{n}</option>)}
             </select>
             <button className="btn-ghost" onClick={() => setSlaDraft({ ...sla })}><Clock3 aria-hidden="true" /> SLA das etapas</button>
-            <button className="btn-primary" onClick={() => setDraft({ ...emptyDraft })}><Plus aria-hidden="true" /> Nova obra</button>
+            <button className="btn-primary" onClick={abrirNova}><Plus aria-hidden="true" /> Nova obra</button>
           </div>
         </div>
 
@@ -313,7 +476,7 @@ export function ObrasBoard() {
                 <div className="column-head"><span className="column-step">{i + 1}</span><h2>{etapa}</h2>{atrasadas > 0 && <span className="column-late" title={`${atrasadas} atrasada(s)`}>{atrasadas} atrasada{atrasadas > 1 ? 's' : ''}</span>}<span className="column-count">{cards.length}</span></div>
                 {sla[etapa] > 0 && <div className="column-sla">Prazo: {sla[etapa]} dias</div>}
                 <div className="column-body">
-                  {cards.map((o) => <ObraCard key={o.id} obra={o} sla={sla} agora={agora} onOpen={(ob) => setDraft({ id: ob.id, cliente: ob.cliente, endereco: ob.endereco, detalhes: ob.detalhes, empreiteiro: ob.empreiteiro, etapa: ob.etapa })} onDragStart={setDragged} />)}
+                  {cards.map((o) => <ObraCard key={o.id} obra={o} sla={sla} agora={agora} onOpen={abrirEdicao} onDragStart={setDragged} />)}
                   {cards.length === 0 && <div className="empty">{loaded ? 'Nenhuma obra' : 'Carregando…'}</div>}
                 </div>
               </section>
@@ -323,11 +486,11 @@ export function ObrasBoard() {
       </main>
 
       {draft && (
-        <div className="backdrop" onClick={() => setDraft(null)}>
+        <div className="backdrop" onClick={fecharDraft}>
           <form className="modal" onSubmit={salvar} onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h2>{draft.id ? 'Editar obra' : 'Nova obra'}</h2>
-              <button type="button" className="icon-btn" aria-label="Fechar" onClick={() => setDraft(null)}><X /></button>
+              <button type="button" className="icon-btn" aria-label="Fechar" onClick={fecharDraft}><X /></button>
             </div>
             <div className="field"><label htmlFor="cliente">Nome do cliente</label><input id="cliente" required value={draft.cliente} onChange={(e) => set('cliente', e.target.value)} placeholder="Ex.: Maria Silva" autoFocus /></div>
             <div className="field"><label htmlFor="endereco">Endereço da obra</label><input id="endereco" required value={draft.endereco} onChange={(e) => set('endereco', e.target.value)} placeholder="Rua, número, bairro, cidade" /></div>
@@ -336,6 +499,28 @@ export function ObrasBoard() {
               <label htmlFor="empreiteiro">Empreiteiro responsável</label>
               <input id="empreiteiro" required list="empreiteiros" value={draft.empreiteiro} onChange={(e) => set('empreiteiro', e.target.value)} placeholder="Nome do empreiteiro" />
               <datalist id="empreiteiros">{empreiteiros.map((n) => <option key={n} value={n} />)}</datalist>
+            </div>
+            <div className="field">
+              <label>Fotos da obra</label>
+              <div className="galeria">
+                {draft.fotos.map((f, i) => {
+                  const ehCapa = (capaDe(draft)?.id ?? '') === f.id
+                  return (
+                    <div key={f.id} className={`galeria-item ${ehCapa ? 'capa' : ''}`}>
+                      <button type="button" className="galeria-img" onClick={() => setViewer(i)} aria-label={`Ampliar foto ${i + 1}`}>
+                        <img src={f.thumb} alt={f.legenda || `Foto ${i + 1}`} loading="lazy" />
+                      </button>
+                      <button type="button" className={`galeria-star ${ehCapa ? 'on' : ''}`} onClick={() => set('capa', f.id)} aria-label={ehCapa ? 'Foto de capa' : 'Usar como capa'} title={ehCapa ? 'Foto de capa' : 'Usar como capa'}><Star /></button>
+                    </div>
+                  )
+                })}
+                <label className={`galeria-add ${enviando ? 'busy' : ''}`}>
+                  <ImagePlus aria-hidden="true" />
+                  <span>{enviando ? 'Enviando…' : 'Adicionar fotos'}</span>
+                  <input type="file" accept="image/*" multiple disabled={enviando} onChange={(e) => { void adicionarFotos(e.target.files); e.target.value = '' }} />
+                </label>
+              </div>
+              {draft.fotos.length > 0 && <p className="galeria-dica">Toque na foto para ampliar. A estrela define a capa do card.</p>}
             </div>
             <fieldset className="field stages">
               <legend>Status da obra</legend>
@@ -350,12 +535,44 @@ export function ObrasBoard() {
             <div className="modal-actions">
               {draft.id && <button type="button" className="btn-danger" onClick={excluir}><Trash2 aria-hidden="true" /> Excluir</button>}
               <span className="spacer" />
-              <button type="button" className="btn-ghost" onClick={() => setDraft(null)}>Cancelar</button>
-              <button type="submit" className="btn-primary">Salvar</button>
+              <button type="button" className="btn-ghost" onClick={fecharDraft}>Cancelar</button>
+              <button type="submit" className="btn-primary" disabled={enviando}>Salvar</button>
             </div>
           </form>
         </div>
       )}
+
+      {draft && viewer !== null && draft.fotos[viewer] && (() => {
+        const foto = draft.fotos[viewer]
+        const total = draft.fotos.length
+        return (
+          <div className="lightbox" role="dialog" aria-label="Foto da obra" onClick={() => setViewer(null)}>
+            <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
+              <img src={foto.url} alt={foto.legenda || `Foto ${viewer + 1} de ${total}`} />
+              <div className="lightbox-bar">
+                <div className="lightbox-info">
+                  <span>{formatarData(foto.data)} · {viewer + 1}/{total}</span>
+                  <input
+                    aria-label="Legenda da foto"
+                    placeholder="Legenda (ex.: laje concluída)"
+                    maxLength={120}
+                    value={foto.legenda}
+                    onChange={(e) => setDraft((d) => (d ? { ...d, fotos: d.fotos.map((f) => (f.id === foto.id ? { ...f, legenda: e.target.value } : f)) } : d))}
+                  />
+                </div>
+                <button type="button" className="btn-danger" onClick={() => removerFoto(foto)}><Trash2 aria-hidden="true" /> Remover</button>
+              </div>
+              {total > 1 && (
+                <>
+                  <button type="button" className="lightbox-nav prev" aria-label="Foto anterior" onClick={() => setViewer((viewer + total - 1) % total)}><ChevronLeft /></button>
+                  <button type="button" className="lightbox-nav next" aria-label="Próxima foto" onClick={() => setViewer((viewer + 1) % total)}><ChevronRight /></button>
+                </>
+              )}
+              <button type="button" className="lightbox-close" aria-label="Fechar foto" onClick={() => setViewer(null)}><X /></button>
+            </div>
+          </div>
+        )
+      })()}
 
       {slaDraft && (
         <div className="backdrop" onClick={() => setSlaDraft(null)}>

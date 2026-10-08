@@ -20,6 +20,12 @@ Arraste o card entre colunas ou abra-o para editar. O card mostra há quanto tem
 
 O botão **SLA das etapas** define o prazo esperado, em dias, de cada etapa (0 = sem prazo). Os prazos iniciais são valores de partida e devem ser ajustados pela Quintal. Eles são salvos junto com o quadro, na coluna `obras` (`{ obras, sla }`), sem precisar alterar o banco.
 
+## Fotos da obra
+
+Cada obra tem uma foto de capa no card e uma galeria na janela de edição (várias fotos, legenda, estrela para escolher a capa). As fotos são reduzidas no navegador (1600 px e miniatura de 480 px) e enviadas ao Supabase Storage, no bucket `obras-fotos`. Para ativar o envio, rode `supabase/storage.sql` uma vez no SQL Editor. Sem o Supabase, o app guarda versões menores no navegador.
+
+`public/exemplo/` traz uma ilustração de exemplo (não é foto real).
+
 ## Rodando localmente
 
 ```bash
