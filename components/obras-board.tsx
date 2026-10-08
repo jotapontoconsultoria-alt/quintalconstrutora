@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { HardHat, MapPin, Plus, Search, Trash2, X } from 'lucide-react'
+import { Clock3, HardHat, MapPin, Plus, Search, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 
 export const STAGES = ['PROJETO', 'APROVAÇÃO', 'FUNDAÇÃO', 'ALVENARIA', 'INSTALAÇÕES', 'ESQUADRIAS', 'REVESTIMENTOS'] as const
@@ -20,16 +20,66 @@ type Obra = {
 
 type Draft = Omit<Obra, 'id' | 'desde'> & { id?: string }
 
+/** Prazo esperado, em dias, para cada etapa (0 = sem prazo). */
+type Sla = Record<Stage, number>
+
+const DEFAULT_SLA: Sla = {
+  'PROJETO': 30,
+  'APROVAÇÃO': 45,
+  'FUNDAÇÃO': 20,
+  'ALVENARIA': 45,
+  'INSTALAÇÕES': 30,
+  'ESQUADRIAS': 15,
+  'REVESTIMENTOS': 45,
+}
+
 const BOARD_ID = 'default'
 const LOCAL_KEY = 'quintal-obras'
 const emptyDraft: Draft = { cliente: '', endereco: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO' }
 
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
-function tempoNaEtapa(desde: string, agora: number) {
+function diasNaEtapa(desde: string, agora: number) {
   const ms = agora - new Date(desde).getTime()
-  if (!Number.isFinite(ms) || ms < 0) return 'hoje'
-  const dias = Math.floor(ms / 86_400_000)
+  if (!Number.isFinite(ms) || ms < 0) return 0
+  return Math.floor(ms / 86_400_000)
+}
+
+/** Dias restantes do prazo da etapa (negativo = atrasada). `null` quando a etapa não tem prazo. */
+function diasRestantes(obra: Obra, sla: Sla, agora: number) {
+  const meta = sla[obra.etapa]
+  return meta > 0 ? meta - diasNaEtapa(obra.desde, agora) : null
+}
+
+function textoPrazo(restantes: number) {
+  if (restantes < 0) return `Atrasada ${Math.abs(restantes)} ${Math.abs(restantes) === 1 ? 'dia' : 'dias'}`
+  if (restantes === 0) return 'Vence hoje'
+  return `${restantes} ${restantes === 1 ? 'dia' : 'dias'} restantes`
+}
+
+function sanitizeSla(raw: unknown): Sla {
+  const out = { ...DEFAULT_SLA }
+  if (raw && typeof raw === 'object') {
+    for (const stage of STAGES) {
+      const v = Number((raw as Record<string, unknown>)[stage])
+      if (Number.isFinite(v) && v >= 0) out[stage] = Math.floor(v)
+    }
+  }
+  return out
+}
+
+/** O quadro é gravado como lista de obras (formato antigo) ou como { obras, sla }. */
+function parseBoard(raw: unknown): { obras: Obra[]; sla: Sla } {
+  if (Array.isArray(raw)) return { obras: sanitize(raw), sla: DEFAULT_SLA }
+  if (raw && typeof raw === 'object') {
+    const r = raw as { obras?: unknown; sla?: unknown }
+    return { obras: sanitize(r.obras), sla: sanitizeSla(r.sla) }
+  }
+  return { obras: [], sla: DEFAULT_SLA }
+}
+
+function tempoNaEtapa(desde: string, agora: number) {
+  const dias = diasNaEtapa(desde, agora)
   if (dias < 1) return 'hoje'
   if (dias === 1) return '1 dia'
   if (dias < 30) return `${dias} dias`
@@ -56,7 +106,8 @@ function sanitize(raw: unknown): Obra[] {
     }))
 }
 
-function ObraCard({ obra, agora, onOpen, onDragStart }: { obra: Obra; agora: number; onOpen: (o: Obra) => void; onDragStart: (o: Obra) => void }) {
+function ObraCard({ obra, sla, agora, onOpen, onDragStart }: { obra: Obra; sla: Sla; agora: number; onOpen: (o: Obra) => void; onDragStart: (o: Obra) => void }) {
+  const restantes = diasRestantes(obra, sla, agora)
   return (
     <div
       role="button"
@@ -75,6 +126,11 @@ function ObraCard({ obra, agora, onOpen, onDragStart }: { obra: Obra; agora: num
       <strong className="obra-cliente">{obra.cliente}</strong>
       <span className="obra-endereco"><MapPin aria-hidden="true" />{obra.endereco}</span>
       {obra.detalhes && <p className="obra-detalhes">{obra.detalhes}</p>}
+      {restantes !== null && (
+        <span className={`obra-prazo ${restantes < 0 ? 'late' : restantes <= 5 ? 'warn' : 'ok'}`} title={`Prazo da etapa: ${sla[obra.etapa]} dias`}>
+          <Clock3 aria-hidden="true" />{textoPrazo(restantes)}
+        </span>
+      )}
       <div className="obra-rodape">
         <span className="obra-empreiteiro"><HardHat aria-hidden="true" />{obra.empreiteiro || 'Sem empreiteiro'}</span>
         <span className="obra-tempo" title="Tempo nesta etapa">{tempoNaEtapa(obra.desde, agora)}</span>
@@ -89,6 +145,8 @@ export function ObrasBoard() {
   const [syncError, setSyncError] = useState(false)
   const [search, setSearch] = useState('')
   const [filtroEmpreiteiro, setFiltroEmpreiteiro] = useState('Todos')
+  const [sla, setSla] = useState<Sla>(DEFAULT_SLA)
+  const [slaDraft, setSlaDraft] = useState<Sla | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [dragged, setDragged] = useState<Obra | null>(null)
   const [toast, setToast] = useState('')
@@ -118,11 +176,19 @@ export function ObrasBoard() {
         const { data, error } = await table.select('obras').eq('id', BOARD_ID).maybeSingle()
         if (!alive) return
         if (error) setSyncError(true)
-        else if (data) setObras(sanitize(data.obras))
+        else if (data) {
+          const board = parseBoard(data.obras)
+          setObras(board.obras)
+          setSla(board.sla)
+        }
       } else {
         try {
           const saved = window.localStorage.getItem(LOCAL_KEY)
-          if (saved && alive) setObras(sanitize(JSON.parse(saved)))
+          if (saved && alive) {
+            const board = parseBoard(JSON.parse(saved))
+            setObras(board.obras)
+            setSla(board.sla)
+          }
         } catch {}
       }
       if (alive) setLoaded(true)
@@ -139,9 +205,11 @@ export function ObrasBoard() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'quintal_board_state', filter: `id=eq.${BOARD_ID}` }, (payload) => {
         if (payload.eventType === 'DELETE') return
         const next = (payload.new as { obras?: unknown })?.obras
-        if (Array.isArray(next)) {
+        if (next && typeof next === 'object') {
+          const board = parseBoard(next)
           skipNextSave.current = true
-          setObras(sanitize(next))
+          setObras(board.obras)
+          setSla(board.sla)
         }
       })
       .subscribe()
@@ -152,12 +220,14 @@ export function ObrasBoard() {
   useEffect(() => {
     if (!loaded) return
     if (skipNextSave.current) { skipNextSave.current = false; return }
+    // A coluna jsonb `obras` guarda { obras, sla }, para os prazos serem compartilhados sem alterar o banco.
+    const board = { obras, sla }
     if (table) {
-      void table.upsert({ id: BOARD_ID, obras, updated_at: new Date().toISOString() }).then(({ error }: { error: unknown }) => setSyncError(!!error))
+      void table.upsert({ id: BOARD_ID, obras: board, updated_at: new Date().toISOString() }).then(({ error }: { error: unknown }) => setSyncError(!!error))
     } else {
-      try { window.localStorage.setItem(LOCAL_KEY, JSON.stringify(obras)) } catch {}
+      try { window.localStorage.setItem(LOCAL_KEY, JSON.stringify(board)) } catch {}
     }
-  }, [loaded, obras, table])
+  }, [loaded, obras, sla, table])
 
   const empreiteiros = useMemo(() => Array.from(new Set(obras.map((o) => o.empreiteiro.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [obras])
 
@@ -186,6 +256,14 @@ export function ObrasBoard() {
     setDraft(null)
   }
 
+  const salvarSla = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!slaDraft) return
+    setSla(slaDraft)
+    setSlaDraft(null)
+    showToast('Prazos das etapas atualizados')
+  }
+
   const excluir = () => {
     if (!draft?.id) return
     if (!window.confirm(`Excluir a obra de ${draft.cliente}? Essa ação não pode ser desfeita.`)) return
@@ -199,7 +277,7 @@ export function ObrasBoard() {
   return (
     <div className="shell">
       <header className="topbar">
-        <img className="logo" src="/logo.svg" alt="Quintal Construtora" />
+        <img className="logo" src="/logo.png" alt="Quintal Construtora e Incorporadora" width={502} height={178} />
         <span className="topbar-tag">Acompanhamento de obras</span>
       </header>
 
@@ -218,6 +296,7 @@ export function ObrasBoard() {
               <option>Todos</option>
               {empreiteiros.map((n) => <option key={n}>{n}</option>)}
             </select>
+            <button className="btn-ghost" onClick={() => setSlaDraft({ ...sla })}><Clock3 aria-hidden="true" /> SLA das etapas</button>
             <button className="btn-primary" onClick={() => setDraft({ ...emptyDraft })}><Plus aria-hidden="true" /> Nova obra</button>
           </div>
         </div>
@@ -228,11 +307,13 @@ export function ObrasBoard() {
         <div className="board">
           {STAGES.map((etapa, i) => {
             const cards = filtradas.filter((o) => o.etapa === etapa)
+            const atrasadas = cards.filter((o) => (diasRestantes(o, sla, agora) ?? 0) < 0).length
             return (
               <section key={etapa} className="column" onDragOver={(e) => e.preventDefault()} onDrop={() => { if (dragged) moverPara(dragged, etapa); setDragged(null) }}>
-                <div className="column-head"><span className="column-step">{i + 1}</span><h2>{etapa}</h2><span className="column-count">{cards.length}</span></div>
+                <div className="column-head"><span className="column-step">{i + 1}</span><h2>{etapa}</h2>{atrasadas > 0 && <span className="column-late" title={`${atrasadas} atrasada(s)`}>{atrasadas} atrasada{atrasadas > 1 ? 's' : ''}</span>}<span className="column-count">{cards.length}</span></div>
+                {sla[etapa] > 0 && <div className="column-sla">Prazo: {sla[etapa]} dias</div>}
                 <div className="column-body">
-                  {cards.map((o) => <ObraCard key={o.id} obra={o} agora={agora} onOpen={(ob) => setDraft({ id: ob.id, cliente: ob.cliente, endereco: ob.endereco, detalhes: ob.detalhes, empreiteiro: ob.empreiteiro, etapa: ob.etapa })} onDragStart={setDragged} />)}
+                  {cards.map((o) => <ObraCard key={o.id} obra={o} sla={sla} agora={agora} onOpen={(ob) => setDraft({ id: ob.id, cliente: ob.cliente, endereco: ob.endereco, detalhes: ob.detalhes, empreiteiro: ob.empreiteiro, etapa: ob.etapa })} onDragStart={setDragged} />)}
                   {cards.length === 0 && <div className="empty">{loaded ? 'Nenhuma obra' : 'Carregando…'}</div>}
                 </div>
               </section>
@@ -271,6 +352,37 @@ export function ObrasBoard() {
               <span className="spacer" />
               <button type="button" className="btn-ghost" onClick={() => setDraft(null)}>Cancelar</button>
               <button type="submit" className="btn-primary">Salvar</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {slaDraft && (
+        <div className="backdrop" onClick={() => setSlaDraft(null)}>
+          <form className="modal" onSubmit={salvarSla} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h2>SLA das etapas</h2>
+                <p className="modal-sub">Prazo esperado, em dias, para cada etapa. Use 0 para não ter prazo.</p>
+              </div>
+              <button type="button" className="icon-btn" aria-label="Fechar" onClick={() => setSlaDraft(null)}><X /></button>
+            </div>
+            <div className="sla-list">
+              {STAGES.map((s, i) => (
+                <div className="sla-row" key={s}>
+                  <label htmlFor={`sla-${i}`}><span className="column-step">{i + 1}</span>{s}</label>
+                  <div className="sla-input">
+                    <input id={`sla-${i}`} type="number" inputMode="numeric" min={0} max={999} value={slaDraft[s]} onChange={(e) => setSlaDraft((d) => (d ? { ...d, [s]: Math.max(0, Math.floor(Number(e.target.value) || 0)) } : d))} />
+                    <span>dias</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn-ghost" onClick={() => setSlaDraft({ ...DEFAULT_SLA })}>Restaurar padrão</button>
+              <span className="spacer" />
+              <button type="button" className="btn-ghost" onClick={() => setSlaDraft(null)}>Cancelar</button>
+              <button type="submit" className="btn-primary">Salvar prazos</button>
             </div>
           </form>
         </div>

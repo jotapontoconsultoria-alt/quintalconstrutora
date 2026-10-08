@@ -14,7 +14,11 @@ PROJETO → APROVAÇÃO → FUNDAÇÃO → ALVENARIA → INSTALAÇÕES → ESQUA
 - Detalhes da obra
 - Empreiteiro responsável
 
-Arraste o card entre colunas ou abra-o para editar. O card mostra há quanto tempo a obra está na etapa atual.
+Arraste o card entre colunas ou abra-o para editar. O card mostra há quanto tempo a obra está na etapa atual e quantos dias restam do prazo (SLA) da etapa.
+
+## SLA das etapas
+
+O botão **SLA das etapas** define o prazo esperado, em dias, de cada etapa (0 = sem prazo). Os prazos iniciais são valores de partida e devem ser ajustados pela Quintal. Eles são salvos junto com o quadro, na coluna `obras` (`{ obras, sla }`), sem precisar alterar o banco.
 
 ## Rodando localmente
 
@@ -36,4 +40,4 @@ Sem variáveis do Supabase, o app funciona em **modo local** (dados salvos só n
 
 ## Identidade visual
 
-Logo provisório em `public/logo.svg` — substitua pelo arquivo oficial da Quintal (mantendo o nome, ou ajuste `components/obras-board.tsx`). Cores em `app/globals.css` (variáveis `--green`, `--sand`).
+Logo oficial em `public/logo.png`. Cores em `app/globals.css` (variáveis `--green`, `--leaf`, `--sand`).
