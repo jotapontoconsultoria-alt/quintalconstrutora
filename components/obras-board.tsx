@@ -1,8 +1,16 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, ChevronLeft, ChevronRight, Clock3, HardHat, ImagePlus, MapPin, Plus, Search, Star, Trash2, X } from 'lucide-react'
+import { Camera, ChevronLeft, ChevronRight, Clock3, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Star, Trash2, X } from 'lucide-react'
+import type { Session } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase'
+import { Login } from '@/components/login'
+
+type Papel = 'editor' | 'leitor'
+
+/** Lido antes de o Supabase limpar o endereço: indica se a pessoa chegou por convite ou recuperação de senha. */
+const HASH_INICIAL = typeof window !== 'undefined' ? window.location.hash : ''
+const VEIO_DE_LINK_DE_SENHA = /type=(invite|recovery)/.test(HASH_INICIAL)
 
 export const STAGES = ['PROJETO', 'APROVAÇÃO', 'FUNDAÇÃO', 'ALVENARIA', 'INSTALAÇÕES', 'ESQUADRIAS', 'REVESTIMENTOS'] as const
 type Stage = (typeof STAGES)[number]
@@ -176,15 +184,16 @@ function sanitizeFotos(raw: unknown): Foto[] {
     }))
 }
 
-function ObraCard({ obra, sla, agora, onOpen, onDragStart }: { obra: Obra; sla: Sla; agora: number; onOpen: (o: Obra) => void; onDragStart: (o: Obra) => void }) {
+function ObraCard({ obra, sla, agora, podeEditar, resolver, onOpen, onDragStart }: { obra: Obra; sla: Sla; agora: number; podeEditar: boolean; resolver: (url: string) => string; onOpen: (o: Obra) => void; onDragStart: (o: Obra) => void }) {
   const restantes = diasRestantes(obra, sla, agora)
   const capa = capaDe(obra)
+  const capaSrc = capa ? resolver(capa.thumb) : ''
   return (
     <div
       role="button"
       tabIndex={0}
-      className="obra-card"
-      draggable
+      className={`obra-card ${podeEditar ? '' : 'somente-leitura'}`}
+      draggable={podeEditar}
       onDragStart={() => onDragStart(obra)}
       onClick={() => onOpen(obra)}
       onKeyDown={(e) => {
@@ -194,8 +203,8 @@ function ObraCard({ obra, sla, agora, onOpen, onDragStart }: { obra: Obra; sla: 
         }
       }}
     >
-      <div className={`obra-capa ${capa ? '' : 'vazia'}`}>
-        {capa ? <img src={capa.thumb} alt={capa.legenda || `Foto da obra de ${obra.cliente}`} loading="lazy" draggable={false} /> : <Camera aria-hidden="true" />}
+      <div className={`obra-capa ${capaSrc ? '' : 'vazia'}`}>
+        {capaSrc ? <img src={capaSrc} alt={capa?.legenda || `Foto da obra de ${obra.cliente}`} loading="lazy" draggable={false} /> : <Camera aria-hidden="true" />}
         {obra.fotos.length > 1 && <span className="obra-capa-n"><Camera aria-hidden="true" />{obra.fotos.length}</span>}
       </div>
       <strong className="obra-cliente">{obra.cliente}</strong>
@@ -236,6 +245,49 @@ export function ObrasBoard() {
   const supabase = useMemo(() => createClient(), [])
   const table = useMemo(() => (supabase ? (supabase.from('quintal_board_state' as never) as any) : null), [supabase])
 
+  // Sessão: `undefined` = verificando, `null` = ninguém logado. Sem Supabase (modo local) não há login.
+  const [session, setSession] = useState<Session | null | undefined>(supabase ? undefined : null)
+  const [papel, setPapel] = useState<Papel>('leitor')
+  const [papelPronto, setPapelPronto] = useState(!supabase)
+  const [definirSenha, setDefinirSenha] = useState(VEIO_DE_LINK_DE_SENHA)
+  const [assinadas, setAssinadas] = useState<Record<string, string>>({})
+  const userId = session?.user.id
+  const podeEditar = !supabase || papel === 'editor'
+
+  useEffect(() => {
+    if (!supabase) return
+    void supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data } = supabase.auth.onAuthStateChange((evento, nova) => {
+      setSession(nova)
+      if (evento === 'PASSWORD_RECOVERY') setDefinirSenha(true)
+    })
+    return () => data.subscription.unsubscribe()
+  }, [supabase])
+
+  // Papel de quem está logado. Qualquer falha cai em "leitor" (o padrão mais restrito).
+  useEffect(() => {
+    if (!supabase || !userId) return
+    let alive = true
+    setPapelPronto(false)
+    void supabase
+      .from('quintal_perfis')
+      .select('papel')
+      .eq('user_id', userId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!alive) return
+        setPapel(!error && data?.papel === 'editor' ? 'editor' : 'leitor')
+        setPapelPronto(true)
+      })
+    return () => { alive = false }
+  }, [supabase, userId])
+
+  /** Links temporários das fotos (o bucket é privado). Fotos fora do bucket passam direto. */
+  const resolver = (url: string) => {
+    const caminho = caminhoNoBucket(url)
+    return caminho ? assinadas[caminho] ?? '' : url
+  }
+
   const showToast = (message: string) => {
     setToast(message)
     window.clearTimeout(toastTimer.current)
@@ -247,8 +299,48 @@ export function ObrasBoard() {
     return () => window.clearInterval(t)
   }, [])
 
+  // Assina os links das fotos que ainda não têm link: miniaturas de todas as obras e a foto ampliada aberta.
+  useEffect(() => {
+    if (!supabase || !session) return
+    const precisam = new Set<string>()
+    const coletar = (fotos: Foto[], incluirGrande: boolean) => {
+      for (const f of fotos) {
+        const t = caminhoNoBucket(f.thumb)
+        if (t && assinadas[t] === undefined) precisam.add(t)
+        if (incluirGrande) {
+          const g = caminhoNoBucket(f.url)
+          if (g && assinadas[g] === undefined) precisam.add(g)
+        }
+      }
+    }
+    for (const o of obras) coletar(o.fotos, false)
+    if (draft) coletar(draft.fotos, false)
+    if (draft && viewer !== null && draft.fotos[viewer]) coletar([draft.fotos[viewer]], true)
+    if (precisam.size === 0) return
+    let alive = true
+    const pedidos = Array.from(precisam)
+    void supabase.storage.from(BUCKET).createSignedUrls(pedidos, 60 * 60 * 24).then(({ data }) => {
+      if (!alive) return
+      setAssinadas((atual) => {
+        const proximo = { ...atual }
+        // Quem não voltou assinado (arquivo ausente ou sem permissão) fica vazio, sem tentar de novo em loop.
+        for (const caminho of pedidos) proximo[caminho] = ''
+        for (const item of data ?? []) if (item.path && item.signedUrl) proximo[item.path] = item.signedUrl
+        return proximo
+      })
+    })
+    return () => { alive = false }
+  }, [supabase, session, obras, draft, viewer, assinadas])
+
+  // Os links duram 24 h: renova a cada 20 h para quem deixa a tela aberta.
+  useEffect(() => {
+    const t = window.setInterval(() => setAssinadas({}), 20 * 60 * 60 * 1000)
+    return () => window.clearInterval(t)
+  }, [])
+
   // Carga inicial: Supabase (compartilhado) ou, sem ele, o navegador.
   useEffect(() => {
+    if (supabase && (!userId || !papelPronto)) return
     let alive = true
     const load = async () => {
       if (table) {
@@ -274,7 +366,7 @@ export function ObrasBoard() {
     }
     void load()
     return () => { alive = false }
-  }, [table])
+  }, [table, supabase, userId, papelPronto])
 
   // Tempo real entre telas.
   useEffect(() => {
@@ -297,7 +389,7 @@ export function ObrasBoard() {
 
   // Salvamento.
   useEffect(() => {
-    if (!loaded) return
+    if (!loaded || !podeEditar) return
     if (skipNextSave.current) { skipNextSave.current = false; return }
     // A coluna jsonb `obras` guarda { obras, sla }, para os prazos serem compartilhados sem alterar o banco.
     const board = { obras, sla }
@@ -306,7 +398,7 @@ export function ObrasBoard() {
     } else {
       try { window.localStorage.setItem(LOCAL_KEY, JSON.stringify(board)) } catch {}
     }
-  }, [loaded, obras, sla, table])
+  }, [loaded, obras, sla, table, podeEditar])
 
   const empreiteiros = useMemo(() => Array.from(new Set(obras.map((o) => o.empreiteiro.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [obras])
 
@@ -316,7 +408,7 @@ export function ObrasBoard() {
   }, [obras, search, filtroEmpreiteiro])
 
   const moverPara = (obra: Obra, etapa: Stage) => {
-    if (obra.etapa === etapa) return
+    if (!podeEditar || obra.etapa === etapa) return
     setObras((items) => items.map((o) => (o.id === obra.id ? { ...o, etapa, desde: new Date().toISOString() } : o)))
     showToast(`${obra.cliente} → ${etapa}`)
   }
@@ -329,6 +421,7 @@ export function ObrasBoard() {
   }
 
   const abrirNova = () => {
+    if (!podeEditar) return
     sessaoFotos.current = { novas: [], removidas: [] }
     setDraft({ ...emptyDraft, novoId: newId() })
   }
@@ -347,7 +440,7 @@ export function ObrasBoard() {
   }
 
   const adicionarFotos = async (files: FileList | null) => {
-    if (!files || files.length === 0 || !draft) return
+    if (!podeEditar || !files || files.length === 0 || !draft) return
     const chave = draft.id ?? draft.novoId ?? newId()
     setEnviando(true)
     const novas: Foto[] = []
@@ -388,6 +481,7 @@ export function ObrasBoard() {
   }
 
   const removerFoto = (foto: Foto) => {
+    if (!podeEditar) return
     sessaoFotos.current.removidas.push(foto)
     setViewer(null)
     setDraft((d) => {
@@ -399,7 +493,7 @@ export function ObrasBoard() {
 
   const salvar = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!draft) return
+    if (!draft || !podeEditar) return
     const { novoId, id: _id, ...campos } = draft
     const limpo = { ...campos, cliente: draft.cliente.trim(), endereco: draft.endereco.trim(), detalhes: draft.detalhes.trim(), empreiteiro: draft.empreiteiro.trim() }
     if (draft.id) {
@@ -417,14 +511,14 @@ export function ObrasBoard() {
 
   const salvarSla = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!slaDraft) return
+    if (!slaDraft || !podeEditar) return
     setSla(slaDraft)
     setSlaDraft(null)
     showToast('Prazos das etapas atualizados')
   }
 
   const excluir = () => {
-    if (!draft?.id) return
+    if (!podeEditar || !draft?.id) return
     if (!window.confirm(`Excluir a obra de ${draft.cliente}? Essa ação não pode ser desfeita.`)) return
     const original = obras.find((o) => o.id === draft.id)
     apagarArquivos([...(original?.fotos ?? []), ...sessaoFotos.current.novas])
@@ -437,11 +531,39 @@ export function ObrasBoard() {
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => (d ? { ...d, [key]: value } : d))
 
+  const sair = async () => {
+    if (!supabase) return
+    await supabase.auth.signOut()
+    setObras([])
+    setSla(DEFAULT_SLA)
+    setLoaded(false)
+    setPapel('leitor')
+    setPapelPronto(false)
+    setAssinadas({})
+    setDraft(null)
+    setSlaDraft(null)
+    setViewer(null)
+  }
+
+  if (supabase && session === undefined) return <div className="auth-page"><p className="auth-carregando">Carregando…</p></div>
+  if (supabase && (!session || definirSenha)) {
+    return <Login supabase={supabase} modo={session && definirSenha ? 'definir' : 'entrar'} onSenhaDefinida={() => setDefinirSenha(false)} />
+  }
+
+  const emailLogado = session?.user.email ?? ''
+
   return (
     <div className="shell">
       <header className="topbar">
         <img className="logo" src="/logo.png" alt="Quintal Construtora e Incorporadora" width={502} height={178} />
         <span className="topbar-tag">Acompanhamento de obras</span>
+        {supabase && session && (
+          <div className="topbar-user">
+            <span className="user-email" title={emailLogado}>{emailLogado}</span>
+            <span className={`papel-badge ${podeEditar ? 'editor' : 'leitor'}`}>{podeEditar ? 'Editor' : 'Somente consulta'}</span>
+            <button type="button" className="btn-ghost sair" onClick={() => void sair()}><LogOut aria-hidden="true" /> Sair</button>
+          </div>
+        )}
       </header>
 
       <main className="content">
@@ -459,8 +581,8 @@ export function ObrasBoard() {
               <option>Todos</option>
               {empreiteiros.map((n) => <option key={n}>{n}</option>)}
             </select>
-            <button className="btn-ghost" onClick={() => setSlaDraft({ ...sla })}><Clock3 aria-hidden="true" /> SLA das etapas</button>
-            <button className="btn-primary" onClick={abrirNova}><Plus aria-hidden="true" /> Nova obra</button>
+            {podeEditar && <button className="btn-ghost" onClick={() => setSlaDraft({ ...sla })}><Clock3 aria-hidden="true" /> SLA das etapas</button>}
+            {podeEditar && <button className="btn-primary" onClick={abrirNova}><Plus aria-hidden="true" /> Nova obra</button>}
           </div>
         </div>
 
@@ -472,11 +594,11 @@ export function ObrasBoard() {
             const cards = filtradas.filter((o) => o.etapa === etapa)
             const atrasadas = cards.filter((o) => (diasRestantes(o, sla, agora) ?? 0) < 0).length
             return (
-              <section key={etapa} className="column" onDragOver={(e) => e.preventDefault()} onDrop={() => { if (dragged) moverPara(dragged, etapa); setDragged(null) }}>
+              <section key={etapa} className="column" onDragOver={(e) => e.preventDefault()} onDrop={() => { if (podeEditar && dragged) moverPara(dragged, etapa); setDragged(null) }}>
                 <div className="column-head"><span className="column-step">{i + 1}</span><h2>{etapa}</h2>{atrasadas > 0 && <span className="column-late" title={`${atrasadas} atrasada(s)`}>{atrasadas} atrasada{atrasadas > 1 ? 's' : ''}</span>}<span className="column-count">{cards.length}</span></div>
                 {sla[etapa] > 0 && <div className="column-sla">Prazo: {sla[etapa]} dias</div>}
                 <div className="column-body">
-                  {cards.map((o) => <ObraCard key={o.id} obra={o} sla={sla} agora={agora} onOpen={abrirEdicao} onDragStart={setDragged} />)}
+                  {cards.map((o) => <ObraCard key={o.id} obra={o} sla={sla} agora={agora} podeEditar={podeEditar} resolver={resolver} onOpen={abrirEdicao} onDragStart={setDragged} />)}
                   {cards.length === 0 && <div className="empty">{loaded ? 'Nenhuma obra' : 'Carregando…'}</div>}
                 </div>
               </section>
@@ -489,9 +611,10 @@ export function ObrasBoard() {
         <div className="backdrop" onClick={fecharDraft}>
           <form className="modal" onSubmit={salvar} onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <h2>{draft.id ? 'Editar obra' : 'Nova obra'}</h2>
+              <h2>{!podeEditar ? 'Detalhes da obra' : draft.id ? 'Editar obra' : 'Nova obra'}</h2>
               <button type="button" className="icon-btn" aria-label="Fechar" onClick={fecharDraft}><X /></button>
             </div>
+            <fieldset className="form-lock" disabled={!podeEditar}>
             <div className="field"><label htmlFor="cliente">Nome do cliente</label><input id="cliente" required value={draft.cliente} onChange={(e) => set('cliente', e.target.value)} placeholder="Ex.: Maria Silva" autoFocus /></div>
             <div className="field"><label htmlFor="endereco">Endereço da obra</label><input id="endereco" required value={draft.endereco} onChange={(e) => set('endereco', e.target.value)} placeholder="Rua, número, bairro, cidade" /></div>
             <div className="field"><label htmlFor="detalhes">Detalhes da obra</label><textarea id="detalhes" value={draft.detalhes} onChange={(e) => set('detalhes', e.target.value)} placeholder="Metragem, tipo de obra, observações, pendências…" /></div>
@@ -500,7 +623,8 @@ export function ObrasBoard() {
               <input id="empreiteiro" required list="empreiteiros" value={draft.empreiteiro} onChange={(e) => set('empreiteiro', e.target.value)} placeholder="Nome do empreiteiro" />
               <datalist id="empreiteiros">{empreiteiros.map((n) => <option key={n} value={n} />)}</datalist>
             </div>
-            <div className="field">
+            </fieldset>
+            {(podeEditar || draft.fotos.length > 0) && <div className="field">
               <label>Fotos da obra</label>
               <div className="galeria">
                 {draft.fotos.map((f, i) => {
@@ -508,21 +632,21 @@ export function ObrasBoard() {
                   return (
                     <div key={f.id} className={`galeria-item ${ehCapa ? 'capa' : ''}`}>
                       <button type="button" className="galeria-img" onClick={() => setViewer(i)} aria-label={`Ampliar foto ${i + 1}`}>
-                        <img src={f.thumb} alt={f.legenda || `Foto ${i + 1}`} loading="lazy" />
+                        {resolver(f.thumb) && <img src={resolver(f.thumb)} alt={f.legenda || `Foto ${i + 1}`} loading="lazy" />}
                       </button>
-                      <button type="button" className={`galeria-star ${ehCapa ? 'on' : ''}`} onClick={() => set('capa', f.id)} aria-label={ehCapa ? 'Foto de capa' : 'Usar como capa'} title={ehCapa ? 'Foto de capa' : 'Usar como capa'}><Star /></button>
+                      {podeEditar && <button type="button" className={`galeria-star ${ehCapa ? 'on' : ''}`} onClick={() => set('capa', f.id)} aria-label={ehCapa ? 'Foto de capa' : 'Usar como capa'} title={ehCapa ? 'Foto de capa' : 'Usar como capa'}><Star /></button>}
                     </div>
                   )
                 })}
-                <label className={`galeria-add ${enviando ? 'busy' : ''}`}>
+                {podeEditar && <label className={`galeria-add ${enviando ? 'busy' : ''}`}>
                   <ImagePlus aria-hidden="true" />
                   <span>{enviando ? 'Enviando…' : 'Adicionar fotos'}</span>
                   <input type="file" accept="image/*" multiple disabled={enviando} onChange={(e) => { void adicionarFotos(e.target.files); e.target.value = '' }} />
-                </label>
+                </label>}
               </div>
-              {draft.fotos.length > 0 && <p className="galeria-dica">Toque na foto para ampliar. A estrela define a capa do card.</p>}
-            </div>
-            <fieldset className="field stages">
+              {draft.fotos.length > 0 && <p className="galeria-dica">{podeEditar ? 'Toque na foto para ampliar. A estrela define a capa do card.' : 'Toque na foto para ampliar.'}</p>}
+            </div>}
+            <fieldset className="field stages" disabled={!podeEditar}>
               <legend>Status da obra</legend>
               <div className="stage-options">
                 {STAGES.map((s) => (
@@ -533,10 +657,10 @@ export function ObrasBoard() {
               </div>
             </fieldset>
             <div className="modal-actions">
-              {draft.id && <button type="button" className="btn-danger" onClick={excluir}><Trash2 aria-hidden="true" /> Excluir</button>}
+              {podeEditar && draft.id && <button type="button" className="btn-danger" onClick={excluir}><Trash2 aria-hidden="true" /> Excluir</button>}
               <span className="spacer" />
-              <button type="button" className="btn-ghost" onClick={fecharDraft}>Cancelar</button>
-              <button type="submit" className="btn-primary" disabled={enviando}>Salvar</button>
+              <button type="button" className="btn-ghost" onClick={fecharDraft}>{podeEditar ? 'Cancelar' : 'Fechar'}</button>
+              {podeEditar && <button type="submit" className="btn-primary" disabled={enviando}>Salvar</button>}
             </div>
           </form>
         </div>
@@ -548,11 +672,12 @@ export function ObrasBoard() {
         return (
           <div className="lightbox" role="dialog" aria-label="Foto da obra" onClick={() => setViewer(null)}>
             <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
-              <img src={foto.url} alt={foto.legenda || `Foto ${viewer + 1} de ${total}`} />
+              {resolver(foto.url) ? <img src={resolver(foto.url)} alt={foto.legenda || `Foto ${viewer + 1} de ${total}`} /> : <div className="lightbox-carregando">Carregando foto…</div>}
               <div className="lightbox-bar">
                 <div className="lightbox-info">
                   <span>{formatarData(foto.data)} · {viewer + 1}/{total}</span>
                   <input
+                    readOnly={!podeEditar}
                     aria-label="Legenda da foto"
                     placeholder="Legenda (ex.: laje concluída)"
                     maxLength={120}
@@ -560,7 +685,7 @@ export function ObrasBoard() {
                     onChange={(e) => setDraft((d) => (d ? { ...d, fotos: d.fotos.map((f) => (f.id === foto.id ? { ...f, legenda: e.target.value } : f)) } : d))}
                   />
                 </div>
-                <button type="button" className="btn-danger" onClick={() => removerFoto(foto)}><Trash2 aria-hidden="true" /> Remover</button>
+                {podeEditar && <button type="button" className="btn-danger" onClick={() => removerFoto(foto)}><Trash2 aria-hidden="true" /> Remover</button>}
               </div>
               {total > 1 && (
                 <>
@@ -574,7 +699,7 @@ export function ObrasBoard() {
         )
       })()}
 
-      {slaDraft && (
+      {podeEditar && slaDraft && (
         <div className="backdrop" onClick={() => setSlaDraft(null)}>
           <form className="modal" onSubmit={salvarSla} onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">

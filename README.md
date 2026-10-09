@@ -42,7 +42,23 @@ Sem variáveis do Supabase, o app funciona em **modo local** (dados salvos só n
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
-> Atenção: as políticas do schema liberam leitura e escrita para quem tiver o link. Antes de usar com dados reais dos clientes, adicione login (Supabase Auth) e restrinja as políticas.
+> Atenção: o `schema.sql` libera leitura e escrita para quem tiver o link. Para uso real, rode também `supabase/auth.sql` (veja a seção abaixo), que troca essas regras por login e perfis.
+
+## Login e perfis de acesso
+
+O app exige e-mail e senha (Supabase Auth). Há dois perfis:
+
+- **editor**: cadastra, edita, move e exclui obras, ajusta o SLA e envia fotos;
+- **leitor** (padrão para todo usuário novo): só consulta.
+
+Passo a passo:
+
+1. Rode `supabase/auth.sql` no SQL Editor. Ele cria os perfis, troca as regras do banco para exigir login e torna o bucket de fotos privado.
+2. No painel do Supabase, em Authentication, desligue **Allow new users to sign up** (o cadastro pelo site fica fechado; só entra quem você criar).
+3. Crie cada pessoa em Authentication → Users → **Add user** (e-mail, senha e "Auto Confirm User").
+4. Promova os editores com o SQL que está no fim de `supabase/auth.sql`.
+
+Sem as variáveis do Supabase, o app roda em modo local, sem login.
 
 ## Identidade visual
 
