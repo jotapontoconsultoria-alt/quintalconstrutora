@@ -182,3 +182,30 @@ h1 { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: clamp
 .obra-card.somente-leitura { cursor: pointer; }
 .lightbox-carregando { display: grid; place-items: center; min-height: 240px; border-radius: 10px; background: #0b1a13; color: #cfd8d2; font-weight: 700; }
 @media (max-width: 900px) { .topbar-tag { display: none; } .user-email { display: none; } }
+
+/* ===== Configurações ===== */
+.modal-wide { width: min(720px, 100%); }
+.cfg-section { margin: 0 0 22px; padding: 0 0 20px; border-bottom: 1px solid var(--line); }
+.cfg-section:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+.cfg-section h3 { margin: 0 0 6px; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--green); }
+.cfg-section h4 { margin: 0 0 12px; font-size: 15px; }
+.cfg-help { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+.cfg-lista { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.cfg-vazio { margin: 0; color: var(--muted); font-size: 13px; }
+.cfg-linha { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fbfaf6; }
+.cfg-quem { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.cfg-quem strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.cfg-quem small { color: var(--muted); font-size: 11.5px; }
+.cfg-voce { color: var(--muted); font-weight: 600; }
+.cfg-linha .select { height: 36px; font-size: 13px; }
+.icon-btn:disabled { opacity: .45; cursor: not-allowed; }
+.icon-btn.danger:hover:not(:disabled) { border-color: #e3b8b4; background: #fbeeec; color: var(--danger); }
+.cfg-novo { padding: 14px; border: 1px dashed #b9c8bd; border-radius: 12px; background: #fbfaf6; }
+.cfg-duas { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cfg-senha { display: flex; gap: 8px; }
+.cfg-senha input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cfg-criado { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid #b9c8bd; border-radius: 12px; background: var(--green-soft); font-size: 14px; }
+.cfg-criado code { padding: 2px 6px; border-radius: 6px; background: #fff; font-size: 15px; font-weight: 700; user-select: all; }
+.cfg-criado small { color: var(--green-strong); font-size: 12px; }
+.cfg-criado .btn-ghost svg { width: 15px; height: 15px; }
+@media (max-width: 640px) { .cfg-duas { grid-template-columns: 1fr; } .cfg-linha { flex-wrap: wrap; } .cfg-quem { flex-basis: 100%; } }

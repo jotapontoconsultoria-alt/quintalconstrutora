@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, ChevronLeft, ChevronRight, Clock3, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Star, Trash2, X } from 'lucide-react'
+import { Camera, ChevronLeft, ChevronRight, Clock3, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase'
 import { Login } from '@/components/login'
+import { Configuracoes } from '@/components/configuracoes'
 
-type Papel = 'editor' | 'leitor'
+type Papel = 'admin' | 'editor' | 'leitor'
 
 /** Lido antes de o Supabase limpar o endereço: indica se a pessoa chegou por convite ou recuperação de senha. */
 const HASH_INICIAL = typeof window !== 'undefined' ? window.location.hash : ''
@@ -252,7 +253,8 @@ export function ObrasBoard() {
   const [definirSenha, setDefinirSenha] = useState(VEIO_DE_LINK_DE_SENHA)
   const [assinadas, setAssinadas] = useState<Record<string, string>>({})
   const userId = session?.user.id
-  const podeEditar = !supabase || papel === 'editor'
+  const podeEditar = !supabase || papel === 'editor' || papel === 'admin'
+  const [configAberta, setConfigAberta] = useState(false)
 
   useEffect(() => {
     if (!supabase) return
@@ -276,7 +278,7 @@ export function ObrasBoard() {
       .maybeSingle()
       .then(({ data, error }) => {
         if (!alive) return
-        setPapel(!error && data?.papel === 'editor' ? 'editor' : 'leitor')
+        setPapel(!error && (data?.papel === 'admin' || data?.papel === 'editor') ? data.papel : 'leitor')
         setPapelPronto(true)
       })
     return () => { alive = false }
@@ -543,6 +545,7 @@ export function ObrasBoard() {
     setDraft(null)
     setSlaDraft(null)
     setViewer(null)
+    setConfigAberta(false)
   }
 
   if (supabase && session === undefined) return <div className="auth-page"><p className="auth-carregando">Carregando…</p></div>
@@ -560,7 +563,8 @@ export function ObrasBoard() {
         {supabase && session && (
           <div className="topbar-user">
             <span className="user-email" title={emailLogado}>{emailLogado}</span>
-            <span className={`papel-badge ${podeEditar ? 'editor' : 'leitor'}`}>{podeEditar ? 'Editor' : 'Somente consulta'}</span>
+            <span className={`papel-badge ${podeEditar ? 'editor' : 'leitor'}`}>{papel === 'admin' ? 'Administrador' : podeEditar ? 'Editor' : 'Somente consulta'}</span>
+            <button type="button" className="icon-btn" aria-label="Configurações" title="Configurações" onClick={() => setConfigAberta(true)}><Settings /></button>
             <button type="button" className="btn-ghost sair" onClick={() => void sair()}><LogOut aria-hidden="true" /> Sair</button>
           </div>
         )}
@@ -728,6 +732,10 @@ export function ObrasBoard() {
             </div>
           </form>
         </div>
+      )}
+
+      {supabase && session && configAberta && (
+        <Configuracoes supabase={supabase} papel={papel} meuId={session.user.id} meuEmail={emailLogado} onFechar={() => setConfigAberta(false)} />
       )}
 
       {toast && <div className="toast" role="status">{toast}</div>}
