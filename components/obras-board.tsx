@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, ChevronLeft, ChevronRight, Clock3, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
+import { Camera, CheckSquare, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase'
 import { Login } from '@/components/login'
@@ -13,8 +13,66 @@ type Papel = 'admin' | 'editor' | 'leitor'
 const HASH_INICIAL = typeof window !== 'undefined' ? window.location.hash : ''
 const VEIO_DE_LINK_DE_SENHA = /type=(invite|recovery)/.test(HASH_INICIAL)
 
-export const STAGES = ['PROJETO', 'APROVAÇÃO', 'FUNDAÇÃO', 'ALVENARIA', 'INSTALAÇÕES', 'ESQUADRIAS', 'REVESTIMENTOS'] as const
+export const STAGES = ['PROJETO', 'APROVAÇÃO', 'SERVIÇOS PRELIMINARES', 'FUNDAÇÃO', 'ESTRUTURA', 'ALVENARIA', 'INSTALAÇÕES', 'REBOCO', 'GESSO', 'PINTURA', 'REVESTIMENTOS', 'ESQUADRIAS', 'ACABAMENTOS'] as const
 type Stage = (typeof STAGES)[number]
+
+/** Atividades de cada etapa. Cada uma ganha uma caixa de marcação; as de etapas em LINK_ETAPAS ganham também o link do Drive. */
+const ATIVIDADES: Record<Stage, readonly string[]> = {
+  'PROJETO': ['Arquitetônico', 'Hidrossanitário', 'Elétrico', 'Estrutural'],
+  'APROVAÇÃO': ['Condomínio', 'Prefeitura', 'Banco / Crédito'],
+  'SERVIÇOS PRELIMINARES': ['Topografia', 'Gabarito', 'Movimentação de terra', 'Infra (Barraco/Banheiro)', 'Água', 'Energia Elétrica'],
+  'FUNDAÇÃO': ['Marcação', 'Estacas', 'Blocos'],
+  'ESTRUTURA': ['Primeiro Pavimento', 'Segundo Pavimento', 'Cobertura'],
+  'ALVENARIA': ['Primeiro Pavimento', 'Segundo Pavimento', 'Cobertura'],
+  'INSTALAÇÕES': ['Pluvial', 'Esgoto', 'Hidráulica', 'Elétrica'],
+  'REBOCO': ['Reboco Interno', 'Reboco Externo'],
+  'GESSO': ['Primeiro Pavimento', 'Segundo Pavimento'],
+  'PINTURA': ['Preparação', 'Emassamento', 'Pintura'],
+  'REVESTIMENTOS': ['Paredes Internas', 'Paredes Externas', 'Piso Térreo', 'Piso Superior', 'Soleiras'],
+  'ESQUADRIAS': ['Portas Internas', 'Portas Externas', 'Janelas', 'Guarda-Corpos', 'Vistas e Rodapés'],
+  'ACABAMENTOS': [],
+}
+const LINK_ETAPAS: readonly Stage[] = ['PROJETO']
+
+/** Estado de cada atividade, guardado por obra com a chave `etapa|atividade`. */
+type Atividade = { feita: boolean; link?: string }
+type Atividades = Record<string, Atividade>
+const chaveAtividade = (etapa: Stage, nome: string) => `${etapa}|${nome}`
+
+/** Só aceita endereços http(s), para o link do Drive nunca virar um script. */
+function linkSeguro(valor: unknown): string {
+  if (typeof valor !== 'string') return ''
+  const v = valor.trim()
+  if (!v) return ''
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(v) ? v : `https://${v}`)
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.toString() : ''
+  } catch {
+    return ''
+  }
+}
+
+function sanitizeAtividades(raw: unknown): Atividades {
+  const out: Atividades = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const etapa of STAGES) {
+    for (const nome of ATIVIDADES[etapa]) {
+      const k = chaveAtividade(etapa, nome)
+      const a = (raw as Record<string, unknown>)[k]
+      if (!a || typeof a !== 'object') continue
+      const feita = (a as Record<string, unknown>).feita === true
+      const link = LINK_ETAPAS.includes(etapa) ? linkSeguro((a as Record<string, unknown>).link) : ''
+      if (feita || link) out[k] = link ? { feita, link } : { feita }
+    }
+  }
+  return out
+}
+
+/** Quantas atividades da etapa já foram marcadas. */
+function progressoEtapa(atividades: Atividades, etapa: Stage) {
+  const lista = ATIVIDADES[etapa]
+  return { feitas: lista.filter((n) => atividades[chaveAtividade(etapa, n)]?.feita).length, total: lista.length }
+}
 
 type Foto = {
   id: string
@@ -39,6 +97,7 @@ type Obra = {
   fotos: Foto[]
   /** id da foto de capa; sem ele vale a primeira. */
   capa?: string
+  atividades: Atividades
 }
 
 type Draft = Omit<Obra, 'id' | 'desde'> & { id?: string; novoId?: string }
@@ -91,15 +150,21 @@ const DEFAULT_SLA: Sla = {
   'PROJETO': 30,
   'APROVAÇÃO': 45,
   'FUNDAÇÃO': 20,
+  'SERVIÇOS PRELIMINARES': 15,
+  'ESTRUTURA': 45,
   'ALVENARIA': 45,
   'INSTALAÇÕES': 30,
-  'ESQUADRIAS': 15,
+  'REBOCO': 20,
+  'GESSO': 15,
+  'PINTURA': 20,
   'REVESTIMENTOS': 45,
+  'ESQUADRIAS': 15,
+  'ACABAMENTOS': 30,
 }
 
 const BOARD_ID = 'default'
 const LOCAL_KEY = 'quintal-obras'
-const emptyDraft: Draft = { cliente: '', endereco: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO', fotos: [] }
+const emptyDraft: Draft = { cliente: '', endereco: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO', fotos: [], atividades: {} }
 
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
@@ -169,6 +234,7 @@ function sanitize(raw: unknown): Obra[] {
       desde: typeof o.desde === 'string' ? o.desde : new Date().toISOString(),
       fotos: sanitizeFotos(o.fotos),
       capa: typeof o.capa === 'string' ? o.capa : undefined,
+      atividades: sanitizeAtividades(o.atividades),
     }))
 }
 
@@ -189,6 +255,7 @@ function ObraCard({ obra, sla, agora, podeEditar, resolver, onOpen, onDragStart 
   const restantes = diasRestantes(obra, sla, agora)
   const capa = capaDe(obra)
   const capaSrc = capa ? resolver(capa.thumb) : ''
+  const prog = progressoEtapa(obra.atividades, obra.etapa)
   return (
     <div
       role="button"
@@ -214,6 +281,13 @@ function ObraCard({ obra, sla, agora, podeEditar, resolver, onOpen, onDragStart 
       {restantes !== null && (
         <span className={`obra-prazo ${restantes < 0 ? 'late' : restantes <= 5 ? 'warn' : 'ok'}`} title={`Prazo da etapa: ${sla[obra.etapa]} dias`}>
           <Clock3 aria-hidden="true" />{textoPrazo(restantes)}
+        </span>
+      )}
+      {prog.total > 0 && (
+        <span className={`obra-prog ${prog.feitas === prog.total ? 'completo' : ''}`} title="Atividades concluídas na etapa atual">
+          <CheckSquare aria-hidden="true" />
+          <span className="obra-prog-barra"><i style={{ width: `${(prog.feitas / prog.total) * 100}%` }} /></span>
+          {prog.feitas}/{prog.total}
         </span>
       )}
       <div className="obra-rodape">
@@ -430,7 +504,7 @@ export function ObrasBoard() {
 
   const abrirEdicao = (o: Obra) => {
     sessaoFotos.current = { novas: [], removidas: [] }
-    setDraft({ id: o.id, cliente: o.cliente, endereco: o.endereco, detalhes: o.detalhes, empreiteiro: o.empreiteiro, etapa: o.etapa, fotos: o.fotos, capa: o.capa })
+    setDraft({ id: o.id, cliente: o.cliente, endereco: o.endereco, detalhes: o.detalhes, empreiteiro: o.empreiteiro, etapa: o.etapa, fotos: o.fotos, capa: o.capa, atividades: o.atividades })
   }
 
   /** Fecha sem salvar: descarta o que foi enviado nesta sessão. */
@@ -650,6 +724,67 @@ export function ObrasBoard() {
               </div>
               {draft.fotos.length > 0 && <p className="galeria-dica">{podeEditar ? 'Toque na foto para ampliar. A estrela define a capa do card.' : 'Toque na foto para ampliar.'}</p>}
             </div>}
+            <div className="field">
+              <label>Atividades por etapa</label>
+              <div className="atividades">
+                {STAGES.map((etapa, i) => {
+                  const lista = ATIVIDADES[etapa]
+                  const { feitas, total } = progressoEtapa(draft.atividades, etapa)
+                  const comLink = LINK_ETAPAS.includes(etapa)
+                  return (
+                    <details key={etapa} className="ativ-etapa" open={draft.etapa === etapa}>
+                      <summary>
+                        <span className="column-step">{i + 1}</span>
+                        <span className="ativ-nome">{etapa}</span>
+                        {total > 0 && <span className={`ativ-cont ${feitas === total ? 'completo' : ''}`}>{feitas}/{total}</span>}
+                      </summary>
+                      {lista.length === 0 ? (
+                        <p className="ativ-vazio">Nenhuma atividade cadastrada nesta etapa.</p>
+                      ) : (
+                        <ul className="ativ-lista">
+                          {lista.map((nome) => {
+                            const k = chaveAtividade(etapa, nome)
+                            const a = draft.atividades[k]
+                            const atualizar = (mudanca: Partial<Atividade>) =>
+                              setDraft((d) => {
+                                if (!d) return d
+                                const nova: Atividade = { ...d.atividades[k], feita: d.atividades[k]?.feita ?? false, ...mudanca }
+                                const atividades = { ...d.atividades }
+                                if (!nova.feita && !nova.link) delete atividades[k]
+                                else atividades[k] = nova.link ? nova : { feita: nova.feita }
+                                return { ...d, atividades }
+                              })
+                            return (
+                              <li key={k} className={a?.feita ? 'feita' : ''}>
+                                <label className="ativ-check">
+                                  <input type="checkbox" disabled={!podeEditar} checked={!!a?.feita} onChange={(e) => atualizar({ feita: e.target.checked })} />
+                                  <span>{nome}</span>
+                                </label>
+                                {comLink && (podeEditar ? (
+                                  <input
+                                    className="ativ-link"
+                                    type="url"
+                                    inputMode="url"
+                                    aria-label={`Link do Google Drive: ${nome}`}
+                                    placeholder="Cole aqui o link do Google Drive"
+                                    value={a?.link ?? ''}
+                                    onChange={(e) => atualizar({ link: e.target.value })}
+                                    onBlur={(e) => { const l = linkSeguro(e.target.value); if (l !== (a?.link ?? '')) atualizar({ link: l }) }}
+                                  />
+                                ) : a?.link ? null : <span className="ativ-sem-link">Sem link</span>)}
+                                {comLink && a?.link && linkSeguro(a.link) && (
+                                  <a className="ativ-abrir" href={linkSeguro(a.link)} target="_blank" rel="noopener noreferrer"><ExternalLink aria-hidden="true" /> Abrir / baixar projeto</a>
+                                )}
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </details>
+                  )
+                })}
+              </div>
+            </div>
             <fieldset className="field stages" disabled={!podeEditar}>
               <legend>Status da obra</legend>
               <div className="stage-options">

@@ -44,7 +44,7 @@ h1 { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: clamp
 .notice { margin: 0 clamp(16px, 3vw, 40px) 14px; padding: 10px 14px; border: 1px solid #d9cfa6; border-radius: 10px; background: #fbf5dc; color: #5c4d12; font-size: 13px; }
 .notice-error { border-color: #e3b8b4; background: #fbeeec; color: var(--danger); }
 
-.board { display: grid; grid-template-columns: repeat(7, minmax(220px, 1fr)); gap: 12px; padding: 0 clamp(16px, 3vw, 40px) 12px; overflow-x: auto; align-items: start; }
+.board { display: grid; grid-template-columns: repeat(13, 250px); gap: 12px; padding: 0 clamp(16px, 3vw, 40px) 12px; overflow-x: auto; align-items: start; }
 .column { min-width: 0; border: 1px solid var(--line); border-radius: 14px; background: #ebe7dc; }
 .column-head { display: flex; align-items: center; gap: 8px; padding: 12px; border-bottom: 3px solid var(--leaf); border-radius: 14px 14px 0 0; background: #fff; }
 .column-step { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--green-soft); color: var(--green); font-size: 11px; font-weight: 800; flex: none; }
@@ -93,7 +93,7 @@ h1 { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: clamp
   .search { width: 100%; }
   .tools { width: 100%; }
   .tools .select { flex: 1; }
-  .board { grid-template-columns: repeat(7, 250px); }
+  .board { grid-template-columns: repeat(13, 250px); }
   .modal { padding: 18px; }
 }
 
@@ -209,3 +209,27 @@ h1 { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: clamp
 .cfg-criado small { color: var(--green-strong); font-size: 12px; }
 .cfg-criado .btn-ghost svg { width: 15px; height: 15px; }
 @media (max-width: 640px) { .cfg-duas { grid-template-columns: 1fr; } .cfg-linha { flex-wrap: wrap; } .cfg-quem { flex-basis: 100%; } }
+
+/* Atividades por etapa */
+.obra-prog { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); font-size: 11.5px; font-weight: 700; }
+.obra-prog svg { width: 14px; height: 14px; flex: none; }
+.obra-prog-barra { flex: 1; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.obra-prog-barra i { display: block; height: 100%; background: var(--leaf); }
+.obra-prog.completo { color: var(--green); }
+.atividades { display: flex; flex-direction: column; gap: 6px; }
+.ativ-etapa { border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.ativ-etapa summary { display: flex; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; list-style: none; font-size: 12.5px; font-weight: 800; letter-spacing: .04em; }
+.ativ-etapa summary::-webkit-details-marker { display: none; }
+.ativ-nome { flex: 1; min-width: 0; }
+.ativ-cont { padding: 2px 8px; border-radius: 999px; background: var(--green-soft); color: var(--green); font-size: 11px; font-weight: 800; }
+.ativ-cont.completo { background: var(--green); color: #fff; }
+.ativ-lista { margin: 0; padding: 4px 12px 12px; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.ativ-lista li { display: flex; flex-direction: column; gap: 6px; }
+.ativ-check { display: flex; align-items: center; gap: 10px; min-height: 28px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.ativ-check input { width: 20px; height: 20px; flex: none; accent-color: var(--green); }
+.ativ-lista li.feita .ativ-check span { color: var(--green); }
+.ativ-link { width: 100%; }
+.ativ-abrir { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; color: var(--green); font-size: 13px; font-weight: 700; }
+.ativ-abrir svg { width: 14px; height: 14px; }
+.ativ-sem-link, .ativ-vazio { margin: 0; padding: 0 12px 12px; color: var(--muted); font-size: 12.5px; }
+.ativ-sem-link { padding: 0; }
