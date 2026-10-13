@@ -216,11 +216,27 @@ function sanitizeSlaAtividades(raw: unknown): SlaAtividades {
 type Quadro = { obras: Obra[]; sla: Sla; slaAtividades: SlaAtividades }
 
 /** O quadro é gravado como lista de obras (formato antigo) ou como { obras, sla, slaAtividades }. */
+function limitarAoTotal(sla: Sla, ativ: SlaAtividades): SlaAtividades {
+  const out: SlaAtividades = { ...ativ }
+  for (const etapa of STAGES) {
+    let resta = sla[etapa]
+    for (const nome of ATIVIDADES[etapa]) {
+      const k = chaveAtividade(etapa, nome)
+      if (out[k] === undefined) continue
+      out[k] = Math.min(out[k], resta)
+      resta -= out[k]
+      if (out[k] <= 0) delete out[k]
+    }
+  }
+  return out
+}
+
 function parseBoard(raw: unknown): Quadro {
   if (Array.isArray(raw)) return { obras: sanitize(raw), sla: DEFAULT_SLA, slaAtividades: {} }
   if (raw && typeof raw === 'object') {
     const r = raw as { obras?: unknown; sla?: unknown; slaAtividades?: unknown }
-    return { obras: sanitize(r.obras), sla: sanitizeSla(r.sla), slaAtividades: sanitizeSlaAtividades(r.slaAtividades) }
+    const sla = sanitizeSla(r.sla)
+    return { obras: sanitize(r.obras), sla, slaAtividades: limitarAoTotal(sla, sanitizeSlaAtividades(r.slaAtividades)) }
   }
   return { obras: [], sla: DEFAULT_SLA, slaAtividades: {} }
 }
@@ -890,7 +906,7 @@ export function ObrasBoard() {
                     <div className="sla-row">
                       <label htmlFor={`sla-${i}`}><span className="column-step">{i + 1}</span>{s}</label>
                       <div className="sla-input">
-                        <input id={`sla-${i}`} type="number" inputMode="numeric" min={0} max={999} value={slaDraft.etapas[s]} onChange={(e) => setSlaDraft((d) => (d ? { ...d, etapas: { ...d.etapas, [s]: Math.max(0, Math.floor(Number(e.target.value) || 0)) } } : d))} />
+                        <input id={`sla-${i}`} type="number" inputMode="numeric" min={0} max={999} value={slaDraft.etapas[s]} onChange={(e) => setSlaDraft((d) => (d ? { ...d, etapas: { ...d.etapas, [s]: Math.max(soma, Math.floor(Number(e.target.value) || 0)) } } : d))} />
                         <span>dias (total)</span>
                       </div>
                     </div>
@@ -900,13 +916,13 @@ export function ObrasBoard() {
                         <div className="sla-row sla-ativ" key={k}>
                           <label htmlFor={`sla-${i}-${j}`}>{nome}</label>
                           <div className="sla-input">
-                            <input id={`sla-${i}-${j}`} type="number" inputMode="numeric" min={0} max={999} value={slaDraft.atividades[k] ?? 0} onChange={(e) => setSlaDraft((d) => (d ? { ...d, atividades: { ...d.atividades, [k]: Math.max(0, Math.floor(Number(e.target.value) || 0)) } } : d))} />
+                            <input id={`sla-${i}-${j}`} type="number" inputMode="numeric" min={0} value={slaDraft.atividades[k] ?? 0} disabled={slaDraft.etapas[s] <= 0} max={(slaDraft.atividades[k] ?? 0) + Math.max(0, slaDraft.etapas[s] - soma)} onChange={(e) => setSlaDraft((d) => (d ? { ...d, atividades: { ...d.atividades, [k]: Math.min(Math.max(0, Math.floor(Number(e.target.value) || 0)), (d.atividades[k] ?? 0) + Math.max(0, d.etapas[s] - soma)) } } : d))} />
                             <span>dias</span>
                           </div>
                         </div>
                       )
                     })}
-                    {soma > 0 && slaDraft.etapas[s] > 0 && soma !== slaDraft.etapas[s] && <p className="sla-soma">Soma das atividades: {soma} dias (total da etapa: {slaDraft.etapas[s]}).</p>}
+                    {ATIVIDADES[s].length > 0 && <p className="sla-soma">{slaDraft.etapas[s] > 0 ? `Atividades: ${soma} de ${slaDraft.etapas[s]} dias (restam ${slaDraft.etapas[s] - soma}). A soma não pode passar do total da etapa.` : 'Defina o prazo total da etapa para poder dar prazo às atividades.'}</p>}
                   </div>
                 )
               })}
