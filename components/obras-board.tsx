@@ -197,14 +197,32 @@ function sanitizeSla(raw: unknown): Sla {
   return out
 }
 
-/** O quadro é gravado como lista de obras (formato antigo) ou como { obras, sla }. */
-function parseBoard(raw: unknown): { obras: Obra[]; sla: Sla } {
-  if (Array.isArray(raw)) return { obras: sanitize(raw), sla: DEFAULT_SLA }
-  if (raw && typeof raw === 'object') {
-    const r = raw as { obras?: unknown; sla?: unknown }
-    return { obras: sanitize(r.obras), sla: sanitizeSla(r.sla) }
+/** Prazo, em dias, de cada atividade (chave `etapa|atividade`; 0 ou ausente = sem prazo). */
+type SlaAtividades = Record<string, number>
+
+function sanitizeSlaAtividades(raw: unknown): SlaAtividades {
+  const out: SlaAtividades = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const etapa of STAGES) {
+    for (const nome of ATIVIDADES[etapa]) {
+      const k = chaveAtividade(etapa, nome)
+      const v = Number((raw as Record<string, unknown>)[k])
+      if (Number.isFinite(v) && v > 0) out[k] = Math.floor(v)
+    }
   }
-  return { obras: [], sla: DEFAULT_SLA }
+  return out
+}
+
+type Quadro = { obras: Obra[]; sla: Sla; slaAtividades: SlaAtividades }
+
+/** O quadro é gravado como lista de obras (formato antigo) ou como { obras, sla, slaAtividades }. */
+function parseBoard(raw: unknown): Quadro {
+  if (Array.isArray(raw)) return { obras: sanitize(raw), sla: DEFAULT_SLA, slaAtividades: {} }
+  if (raw && typeof raw === 'object') {
+    const r = raw as { obras?: unknown; sla?: unknown; slaAtividades?: unknown }
+    return { obras: sanitize(r.obras), sla: sanitizeSla(r.sla), slaAtividades: sanitizeSlaAtividades(r.slaAtividades) }
+  }
+  return { obras: [], sla: DEFAULT_SLA, slaAtividades: {} }
 }
 
 function tempoNaEtapa(desde: string, agora: number) {
@@ -305,7 +323,8 @@ export function ObrasBoard() {
   const [search, setSearch] = useState('')
   const [filtroEmpreiteiro, setFiltroEmpreiteiro] = useState('Todos')
   const [sla, setSla] = useState<Sla>(DEFAULT_SLA)
-  const [slaDraft, setSlaDraft] = useState<Sla | null>(null)
+  const [slaAtividades, setSlaAtividades] = useState<SlaAtividades>({})
+  const [slaDraft, setSlaDraft] = useState<{ etapas: Sla; atividades: SlaAtividades } | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [dragged, setDragged] = useState<Obra | null>(null)
   const [enviando, setEnviando] = useState(false)
@@ -427,6 +446,7 @@ export function ObrasBoard() {
           const board = parseBoard(data.obras)
           setObras(board.obras)
           setSla(board.sla)
+          setSlaAtividades(board.slaAtividades)
         }
       } else {
         try {
@@ -435,6 +455,7 @@ export function ObrasBoard() {
             const board = parseBoard(JSON.parse(saved))
             setObras(board.obras)
             setSla(board.sla)
+            setSlaAtividades(board.slaAtividades)
           }
         } catch {}
       }
@@ -457,6 +478,7 @@ export function ObrasBoard() {
           skipNextSave.current = true
           setObras(board.obras)
           setSla(board.sla)
+          setSlaAtividades(board.slaAtividades)
         }
       })
       .subscribe()
@@ -468,13 +490,13 @@ export function ObrasBoard() {
     if (!loaded || !podeEditar) return
     if (skipNextSave.current) { skipNextSave.current = false; return }
     // A coluna jsonb `obras` guarda { obras, sla }, para os prazos serem compartilhados sem alterar o banco.
-    const board = { obras, sla }
+    const board = { obras, sla, slaAtividades }
     if (table) {
       void table.upsert({ id: BOARD_ID, obras: board, updated_at: new Date().toISOString() }).then(({ error }: { error: unknown }) => setSyncError(!!error))
     } else {
       try { window.localStorage.setItem(LOCAL_KEY, JSON.stringify(board)) } catch {}
     }
-  }, [loaded, obras, sla, table, podeEditar])
+  }, [loaded, obras, sla, slaAtividades, table, podeEditar])
 
   const empreiteiros = useMemo(() => Array.from(new Set(obras.map((o) => o.empreiteiro.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [obras])
 
@@ -588,7 +610,8 @@ export function ObrasBoard() {
   const salvarSla = (e: React.FormEvent) => {
     e.preventDefault()
     if (!slaDraft || !podeEditar) return
-    setSla(slaDraft)
+    setSla(slaDraft.etapas)
+    setSlaAtividades(Object.fromEntries(Object.entries(slaDraft.atividades).filter(([, v]) => v > 0)))
     setSlaDraft(null)
     showToast('Prazos das etapas atualizados')
   }
@@ -612,6 +635,7 @@ export function ObrasBoard() {
     await supabase.auth.signOut()
     setObras([])
     setSla(DEFAULT_SLA)
+    setSlaAtividades({})
     setLoaded(false)
     setPapel('leitor')
     setPapelPronto(false)
@@ -659,7 +683,7 @@ export function ObrasBoard() {
               <option>Todos</option>
               {empreiteiros.map((n) => <option key={n}>{n}</option>)}
             </select>
-            {podeEditar && <button className="btn-ghost" onClick={() => setSlaDraft({ ...sla })}><Clock3 aria-hidden="true" /> SLA das etapas</button>}
+            {podeEditar && <button className="btn-ghost" onClick={() => setSlaDraft({ etapas: { ...sla }, atividades: { ...slaAtividades } })}><Clock3 aria-hidden="true" /> SLA das etapas</button>}
             {podeEditar && <button className="btn-primary" onClick={abrirNova}><Plus aria-hidden="true" /> Nova obra</button>}
           </div>
         </div>
@@ -771,6 +795,15 @@ export function ObrasBoard() {
                                   <input type="checkbox" disabled={!podeEditar} checked={!!a?.feita} onChange={(e) => atualizar({ feita: e.target.checked })} />
                                   <span>{nome}</span>
                                 </label>
+                                {(() => {
+                                  const meta = slaAtividades[k]
+                                  if (!meta) return null
+                                  if (a?.feita) return <span className="ativ-prazo ok">Prazo: {meta} dias · concluída</span>
+                                  const original = draft.id ? obras.find((o) => o.id === draft.id) : undefined
+                                  const desde = original && original.etapa === draft.etapa ? original.desde : new Date(agora).toISOString()
+                                  const rest = meta - diasNaEtapa(desde, agora)
+                                  return <span className={`ativ-prazo ${rest < 0 ? 'late' : rest <= 5 ? 'warn' : 'ok'}`}>Prazo: {meta} dias · {textoPrazo(rest)}</span>
+                                })()}
                                 {comLink && (podeEditar ? (
                                   <input
                                     className="ativ-link"
@@ -845,23 +878,41 @@ export function ObrasBoard() {
             <div className="modal-head">
               <div>
                 <h2>SLA das etapas</h2>
-                <p className="modal-sub">Prazo esperado, em dias, para cada etapa. Use 0 para não ter prazo.</p>
+                <p className="modal-sub">Prazo total de cada etapa e prazo de cada atividade, em dias. Os prazos contam a partir da entrada da obra na etapa. Use 0 para não ter prazo.</p>
               </div>
               <button type="button" className="icon-btn" aria-label="Fechar" onClick={() => setSlaDraft(null)}><X /></button>
             </div>
             <div className="sla-list">
-              {STAGES.map((s, i) => (
-                <div className="sla-row" key={s}>
-                  <label htmlFor={`sla-${i}`}><span className="column-step">{i + 1}</span>{s}</label>
-                  <div className="sla-input">
-                    <input id={`sla-${i}`} type="number" inputMode="numeric" min={0} max={999} value={slaDraft[s]} onChange={(e) => setSlaDraft((d) => (d ? { ...d, [s]: Math.max(0, Math.floor(Number(e.target.value) || 0)) } : d))} />
-                    <span>dias</span>
+              {STAGES.map((s, i) => {
+                const soma = ATIVIDADES[s].reduce((t, n) => t + (slaDraft.atividades[chaveAtividade(s, n)] ?? 0), 0)
+                return (
+                  <div className="sla-grupo" key={s}>
+                    <div className="sla-row">
+                      <label htmlFor={`sla-${i}`}><span className="column-step">{i + 1}</span>{s}</label>
+                      <div className="sla-input">
+                        <input id={`sla-${i}`} type="number" inputMode="numeric" min={0} max={999} value={slaDraft.etapas[s]} onChange={(e) => setSlaDraft((d) => (d ? { ...d, etapas: { ...d.etapas, [s]: Math.max(0, Math.floor(Number(e.target.value) || 0)) } } : d))} />
+                        <span>dias (total)</span>
+                      </div>
+                    </div>
+                    {ATIVIDADES[s].map((nome, j) => {
+                      const k = chaveAtividade(s, nome)
+                      return (
+                        <div className="sla-row sla-ativ" key={k}>
+                          <label htmlFor={`sla-${i}-${j}`}>{nome}</label>
+                          <div className="sla-input">
+                            <input id={`sla-${i}-${j}`} type="number" inputMode="numeric" min={0} max={999} value={slaDraft.atividades[k] ?? 0} onChange={(e) => setSlaDraft((d) => (d ? { ...d, atividades: { ...d.atividades, [k]: Math.max(0, Math.floor(Number(e.target.value) || 0)) } } : d))} />
+                            <span>dias</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {soma > 0 && slaDraft.etapas[s] > 0 && soma !== slaDraft.etapas[s] && <p className="sla-soma">Soma das atividades: {soma} dias (total da etapa: {slaDraft.etapas[s]}).</p>}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
             <div className="modal-actions">
-              <button type="button" className="btn-ghost" onClick={() => setSlaDraft({ ...DEFAULT_SLA })}>Restaurar padrão</button>
+              <button type="button" className="btn-ghost" onClick={() => setSlaDraft({ etapas: { ...DEFAULT_SLA }, atividades: {} })}>Restaurar padrão</button>
               <span className="spacer" />
               <button type="button" className="btn-ghost" onClick={() => setSlaDraft(null)}>Cancelar</button>
               <button type="submit" className="btn-primary">Salvar prazos</button>

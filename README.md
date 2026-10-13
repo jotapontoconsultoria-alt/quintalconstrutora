@@ -22,7 +22,7 @@ Arraste o card entre colunas ou abra-o para editar. O card mostra há quanto tem
 
 ## SLA das etapas
 
-O botão **SLA das etapas** define o prazo esperado, em dias, de cada etapa (0 = sem prazo). Os prazos iniciais são valores de partida e devem ser ajustados pela Quintal. Eles são salvos junto com o quadro, na coluna `obras` (`{ obras, sla }`), sem precisar alterar o banco.
+O botão **SLA das etapas** define o prazo total de cada etapa e o prazo de cada atividade, em dias (0 = sem prazo); ambos contam a partir da entrada da obra na etapa. Os prazos iniciais são valores de partida e devem ser ajustados pela Quintal. Eles são salvos junto com o quadro, na coluna `obras` (`{ obras, sla }`), sem precisar alterar o banco.
 
 ## Fotos da obra
 
