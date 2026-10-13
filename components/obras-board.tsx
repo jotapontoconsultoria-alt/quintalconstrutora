@@ -724,16 +724,27 @@ export function ObrasBoard() {
               </div>
               {draft.fotos.length > 0 && <p className="galeria-dica">{podeEditar ? 'Toque na foto para ampliar. A estrela define a capa do card.' : 'Toque na foto para ampliar.'}</p>}
             </div>}
+            <fieldset className="field stages" disabled={!podeEditar}>
+              <legend>Status da obra</legend>
+              <div className="stage-options">
+                {STAGES.map((s) => (
+                  <label key={s} className={draft.etapa === s ? 'active' : ''}>
+                    <input type="radio" name="etapa" value={s} checked={draft.etapa === s} onChange={() => set('etapa', s)} />{s}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <div className="field">
-              <label>Atividades por etapa</label>
+              <label>Atividades da etapa: {draft.etapa}</label>
               <div className="atividades">
                 {STAGES.map((etapa, i) => {
+                  if (etapa !== draft.etapa) return null
                   const lista = ATIVIDADES[etapa]
                   const { feitas, total } = progressoEtapa(draft.atividades, etapa)
                   const comLink = LINK_ETAPAS.includes(etapa)
                   return (
-                    <details key={etapa} className="ativ-etapa" open={draft.etapa === etapa}>
-                      <summary>
+                    <details key={etapa} className="ativ-etapa" open>
+                      <summary onClick={(e) => e.preventDefault()}>
                         <span className="column-step">{i + 1}</span>
                         <span className="ativ-nome">{etapa}</span>
                         {total > 0 && <span className={`ativ-cont ${feitas === total ? 'completo' : ''}`}>{feitas}/{total}</span>}
@@ -785,16 +796,6 @@ export function ObrasBoard() {
                 })}
               </div>
             </div>
-            <fieldset className="field stages" disabled={!podeEditar}>
-              <legend>Status da obra</legend>
-              <div className="stage-options">
-                {STAGES.map((s) => (
-                  <label key={s} className={draft.etapa === s ? 'active' : ''}>
-                    <input type="radio" name="etapa" value={s} checked={draft.etapa === s} onChange={() => set('etapa', s)} />{s}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
             <div className="modal-actions">
               {podeEditar && draft.id && <button type="button" className="btn-danger" onClick={excluir}><Trash2 aria-hidden="true" /> Excluir</button>}
               <span className="spacer" />

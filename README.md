@@ -9,7 +9,7 @@ PROJETO → APROVAÇÃO → SERVIÇOS PRELIMINARES → FUNDAÇÃO → ESTRUTURA 
 
 ## Atividades por etapa
 
-Cada etapa tem uma lista de atividades (ex.: FUNDAÇÃO → Marcação, Estacas, Blocos), editada na janela da obra em **Atividades por etapa**. Editores e administradores marcam a caixa de cada atividade concluída; o card mostra o progresso da etapa atual (ex.: 2/3). Na etapa **PROJETO** cada atividade tem também um campo para colar o link do Google Drive; quem consulta vê o botão **Abrir / baixar projeto**. A lista fica em `ATIVIDADES`, no início de `components/obras-board.tsx`. Tudo é salvo junto com a obra, sem alterar o banco.
+Cada etapa tem uma lista de atividades (ex.: FUNDAÇÃO → Marcação, Estacas, Blocos), editada na janela da obra, que mostra só as atividades da etapa em que a obra está. Editores e administradores marcam a caixa de cada atividade concluída; o card mostra o progresso da etapa atual (ex.: 2/3). Na etapa **PROJETO** cada atividade tem também um campo para colar o link do Google Drive; quem consulta vê o botão **Abrir / baixar projeto**. A lista fica em `ATIVIDADES`, no início de `components/obras-board.tsx`. Tudo é salvo junto com a obra, sem alterar o banco.
 
 ## Card da obra
 
