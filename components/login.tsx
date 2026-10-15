@@ -28,6 +28,7 @@ export function Login({ onEntrou }: Props) {
     <div className="auth-page">
       <div className="auth-card">
         <img className="auth-logo" src="/logo.png" alt="Quintal Construtora e Incorporadora" width={502} height={178} />
+        <span className="credito credito-login">Developed by Jota Ponto Consultoria</span>
         <form onSubmit={entrar}>
           <p className="eyebrow">ACESSO RESTRITO</p>
           <h1 className="auth-title">Entrar</h1>

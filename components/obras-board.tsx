@@ -562,7 +562,10 @@ export function ObrasBoard() {
   return (
     <div className="shell">
       <header className="topbar">
-        <img className="logo" src="/logo.png" alt="Quintal Construtora e Incorporadora" width={502} height={178} />
+        <div className="logo-bloco">
+          <img className="logo" src="/logo.png" alt="Quintal Construtora e Incorporadora" width={502} height={178} />
+          <span className="credito">Developed by Jota Ponto Consultoria</span>
+        </div>
         <span className="topbar-tag">Acompanhamento de obras</span>
         {(
           <div className="topbar-user">
