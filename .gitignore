@@ -16,3 +16,8 @@ node_modules
 # Next.js / TypeScript build artifacts
 next-env.d.ts
 *.tsbuildinfo
+
+# Dados do servidor
+data/
+dados/
+.env

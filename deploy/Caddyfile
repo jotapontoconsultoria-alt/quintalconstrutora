@@ -1,0 +1,7 @@
+# HTTPS automático (Let's Encrypt) para o endereço definido em DOMINIO no arquivo .env.
+{$DOMINIO} {
+	encode gzip
+	reverse_proxy app:3000 {
+		flush_interval -1
+	}
+}

@@ -1,75 +1,45 @@
 # Quintal Construtora — Kanban de obras
 
-Quadro para acompanhar cada obra em execução, da fase de projeto aos revestimentos.
-Baseado no `ams-joe` (Next.js + Supabase com atualização em tempo real).
+Quadro para acompanhar cada obra em execução, com 13 etapas, atividades por etapa, prazos (SLA), fotos, login com perfis e atualização em tempo real entre telas.
 
-## Etapas (colunas)
+Esta versão roda em servidor próprio (VPS): Next.js + SQLite + fotos em disco. Instalação: **[DEPLOY-HOSTINGER.md](DEPLOY-HOSTINGER.md)**.
+
+## Etapas
 
 PROJETO → APROVAÇÃO → SERVIÇOS PRELIMINARES → FUNDAÇÃO → ESTRUTURA → ALVENARIA → INSTALAÇÕES → REBOCO → GESSO → PINTURA → REVESTIMENTOS → ESQUADRIAS → ACABAMENTOS
 
-## Atividades por etapa
-
-Cada etapa tem uma lista de atividades (ex.: FUNDAÇÃO → Marcação, Estacas, Blocos), editada na janela da obra, que mostra só as atividades da etapa em que a obra está. Editores e administradores marcam a caixa de cada atividade concluída; o card mostra o progresso da etapa atual (ex.: 2/3). Na etapa **PROJETO** cada atividade tem também um campo para colar o link do Google Drive; quem consulta vê o botão **Abrir / baixar projeto**. A lista fica em `ATIVIDADES`, no início de `components/obras-board.tsx`. Tudo é salvo junto com a obra, sem alterar o banco.
-
 ## Card da obra
 
-- Nome do cliente
-- Endereço da obra
-- Detalhes da obra
-- Empreiteiro responsável
+Nome do cliente, endereço, detalhes, empreiteiro responsável, foto de capa, prazo da etapa e progresso das atividades. Arraste o card entre colunas ou abra-o para editar.
 
-Arraste o card entre colunas ou abra-o para editar. O card mostra há quanto tempo a obra está na etapa atual e quantos dias restam do prazo (SLA) da etapa.
+## Atividades por etapa
 
-## SLA das etapas
+Ao abrir uma obra, aparecem só as atividades da etapa atual (ex.: FUNDAÇÃO → Marcação, Estacas, Blocos). Editores e administradores marcam as concluídas. Em PROJETO, cada atividade tem também um campo para o link do Google Drive; quem consulta vê o botão **Abrir / baixar projeto**. A lista está em `ATIVIDADES`, no início de `components/obras-board.tsx`.
 
-O botão **SLA das etapas** define o prazo total de cada etapa e o prazo de cada atividade, em dias (0 = sem prazo); ambos contam a partir da entrada da obra na etapa. A soma dos prazos das atividades não pode passar do prazo total da etapa. Os prazos iniciais são valores de partida e devem ser ajustados pela Quintal. Eles são salvos junto com o quadro, na coluna `obras` (`{ obras, sla }`), sem precisar alterar o banco.
+## SLA
 
-## Fotos da obra
+O botão **SLA das etapas** define o prazo total de cada etapa e o de cada atividade, em dias (0 = sem prazo). A soma dos prazos das atividades não pode passar do total da etapa.
 
-Cada obra tem uma foto de capa no card e uma galeria na janela de edição (várias fotos, legenda, estrela para escolher a capa). As fotos são reduzidas no navegador (1600 px e miniatura de 480 px) e enviadas ao Supabase Storage, no bucket `obras-fotos`. Para ativar o envio, rode `supabase/storage.sql` uma vez no SQL Editor. Sem o Supabase, o app guarda versões menores no navegador.
+## Perfis
 
-`public/exemplo/` traz uma ilustração de exemplo (não é foto real).
+- **Administrador**: edita e, em Configurações, cadastra usuários, muda perfis, redefine senhas e remove acessos.
+- **Editor**: cadastra, edita, move e exclui obras, ajusta SLA e envia fotos.
+- **Somente consulta**: apenas visualiza.
 
-## Rodando localmente
+Não há recuperação de senha por e-mail: o administrador define uma senha provisória em Configurações.
+
+## Desenvolvimento local
 
 ```bash
-pnpm install   # ou npm install
-pnpm dev
+npm install
+ADMIN_EMAIL=voce@exemplo.com ADMIN_SENHA=senha-forte-123 npm run dev
 ```
 
-Sem variáveis do Supabase, o app funciona em **modo local** (dados salvos só no navegador).
+Os dados ficam em `./data` (banco `quintal.db` e pasta `fotos`). Requer Node 22 ou mais novo (usa o SQLite embutido do Node).
 
-## Compartilhar entre aparelhos (Supabase)
+## Como funciona
 
-1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor.
-2. Defina no Vercel (e em `.env.local`):
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-
-> Atenção: o `schema.sql` libera leitura e escrita para quem tiver o link. Para uso real, rode também `supabase/auth.sql` (veja a seção abaixo), que troca essas regras por login e perfis.
-
-## Login e perfis de acesso
-
-O app exige e-mail e senha (Supabase Auth). Há três perfis:
-
-- **administrador**: faz tudo o que o editor faz e, em **Configurações** (engrenagem no topo), cadastra usuários, define o perfil de cada um, redefine senhas e remove acessos;
-- **editor**: cadastra, edita, move e exclui obras, ajusta o SLA e envia fotos;
-- **somente consulta** (padrão para todo usuário novo): só visualiza.
-
-Todo usuário também pode trocar a própria senha em Configurações.
-
-Os usuários são criados por uma Edge Function do Supabase (`supabase/functions/admin-usuarios`), que roda no servidor com a chave de serviço do próprio Supabase e só aceita chamadas de administradores. Nenhuma chave secreta fica no site.
-
-Passo a passo da primeira configuração:
-
-1. Rode `supabase/auth.sql` no SQL Editor. Ele cria os perfis, troca as regras do banco para exigir login e torna o bucket de fotos privado.
-2. No painel do Supabase, em Authentication, desligue **Allow new users to sign up** (o cadastro pelo site fica fechado; só entra quem o administrador criar).
-3. Crie o primeiro usuário em Authentication → Users → **Add user** (e-mail, senha e "Auto Confirm User").
-4. Promova esse usuário a administrador com o SQL que está no fim de `supabase/auth.sql`.
-5. Entre no site: os demais usuários são cadastrados em Configurações.
-
-Sem as variáveis do Supabase, o app roda em modo local, sem login.
-
-## Identidade visual
-
-Logo oficial em `public/logo.png`. Cores em `app/globals.css` (variáveis `--green`, `--leaf`, `--sand`).
+- `app/api/*`: login (cookie de sessão, senha com scrypt), quadro, fotos (entregues só a quem está logado), usuários e o canal de tempo real (SSE).
+- `lib/server/*`: banco SQLite, sessões e utilidades.
+- `scripts/`: importação do quadro antigo, backup.
+- Tudo roda em um único processo; para tempo real em várias instâncias seria preciso trocar o canal por Redis/Postgres (não é o caso aqui).

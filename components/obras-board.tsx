@@ -2,16 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, CheckSquare, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
-import type { Session } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { Login } from '@/components/login'
 import { Configuracoes } from '@/components/configuracoes'
 
 type Papel = 'admin' | 'editor' | 'leitor'
-
-/** Lido antes de o Supabase limpar o endereço: indica se a pessoa chegou por convite ou recuperação de senha. */
-const HASH_INICIAL = typeof window !== 'undefined' ? window.location.hash : ''
-const VEIO_DE_LINK_DE_SENHA = /type=(invite|recovery)/.test(HASH_INICIAL)
 
 export const STAGES = ['PROJETO', 'APROVAÇÃO', 'SERVIÇOS PRELIMINARES', 'FUNDAÇÃO', 'ESTRUTURA', 'ALVENARIA', 'INSTALAÇÕES', 'REBOCO', 'GESSO', 'PINTURA', 'REVESTIMENTOS', 'ESQUADRIAS', 'ACABAMENTOS'] as const
 type Stage = (typeof STAGES)[number]
@@ -102,7 +97,7 @@ type Obra = {
 
 type Draft = Omit<Obra, 'id' | 'desde'> & { id?: string; novoId?: string }
 
-const BUCKET = 'obras-fotos'
+const PREFIXO_FOTOS = '/api/fotos/'
 
 function capaDe(obra: Pick<Obra, 'fotos' | 'capa'>): Foto | undefined {
   return obra.fotos.find((f) => f.id === obra.capa) ?? obra.fotos[0]
@@ -131,11 +126,9 @@ function paraDataUrl(blob: Blob): Promise<string> {
   })
 }
 
-/** Caminho do arquivo dentro do bucket, a partir da URL pública (ou null para fotos que não estão no bucket). */
-function caminhoNoBucket(url: string): string | null {
-  const marca = `/object/public/${BUCKET}/`
-  const i = url.indexOf(marca)
-  return i === -1 ? null : decodeURIComponent(url.slice(i + marca.length).split('?')[0])
+/** Caminho "obra/arquivo.jpg" de uma foto guardada no servidor (ou null para fotos de fora, como a de exemplo). */
+function caminhoNoServidor(url: string): string | null {
+  return url.startsWith(PREFIXO_FOTOS) ? url.slice(PREFIXO_FOTOS.length) : null
 }
 
 function formatarData(iso: string) {
@@ -162,8 +155,6 @@ const DEFAULT_SLA: Sla = {
   'ACABAMENTOS': 30,
 }
 
-const BOARD_ID = 'default'
-const LOCAL_KEY = 'quintal-obras'
 const emptyDraft: Draft = { cliente: '', endereco: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO', fotos: [], atividades: {} }
 
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
@@ -352,52 +343,22 @@ export function ObrasBoard() {
   const skipNextSave = useRef(false)
   const toastTimer = useRef<number | undefined>(undefined)
 
-  const supabase = useMemo(() => createClient(), [])
-  const table = useMemo(() => (supabase ? (supabase.from('quintal_board_state' as never) as any) : null), [supabase])
-
-  // Sessão: `undefined` = verificando, `null` = ninguém logado. Sem Supabase (modo local) não há login.
-  const [session, setSession] = useState<Session | null | undefined>(supabase ? undefined : null)
-  const [papel, setPapel] = useState<Papel>('leitor')
-  const [papelPronto, setPapelPronto] = useState(!supabase)
-  const [definirSenha, setDefinirSenha] = useState(VEIO_DE_LINK_DE_SENHA)
-  const [assinadas, setAssinadas] = useState<Record<string, string>>({})
-  const userId = session?.user.id
-  const podeEditar = !supabase || papel === 'editor' || papel === 'admin'
+  // Sessão: `undefined` = verificando, `null` = ninguém logado.
+  const [usuario, setUsuario] = useState<{ id: string; email: string; papel: Papel } | null | undefined>(undefined)
+  const papel: Papel = usuario?.papel ?? 'leitor'
+  const podeEditar = papel === 'editor' || papel === 'admin'
   const [configAberta, setConfigAberta] = useState(false)
+  const clienteId = useRef(newId())
+  const logado = !!usuario
 
   useEffect(() => {
-    if (!supabase) return
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data } = supabase.auth.onAuthStateChange((evento, nova) => {
-      setSession(nova)
-      if (evento === 'PASSWORD_RECOVERY') setDefinirSenha(true)
-    })
-    return () => data.subscription.unsubscribe()
-  }, [supabase])
+    void api<{ usuario: { id: string; email: string; papel: Papel } | null }>('/api/auth/me')
+      .then((r) => setUsuario(r.usuario))
+      .catch(() => setUsuario(null))
+  }, [])
 
-  // Papel de quem está logado. Qualquer falha cai em "leitor" (o padrão mais restrito).
-  useEffect(() => {
-    if (!supabase || !userId) return
-    let alive = true
-    setPapelPronto(false)
-    void supabase
-      .from('quintal_perfis')
-      .select('papel')
-      .eq('user_id', userId)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!alive) return
-        setPapel(!error && (data?.papel === 'admin' || data?.papel === 'editor') ? data.papel : 'leitor')
-        setPapelPronto(true)
-      })
-    return () => { alive = false }
-  }, [supabase, userId])
-
-  /** Links temporários das fotos (o bucket é privado). Fotos fora do bucket passam direto. */
-  const resolver = (url: string) => {
-    const caminho = caminhoNoBucket(url)
-    return caminho ? assinadas[caminho] ?? '' : url
-  }
+  /** As fotos ficam no servidor e só são entregues a quem está logado, então o endereço já serve direto. */
+  const resolver = (url: string) => url
 
   const showToast = (message: string) => {
     setToast(message)
@@ -410,109 +371,56 @@ export function ObrasBoard() {
     return () => window.clearInterval(t)
   }, [])
 
-  // Assina os links das fotos que ainda não têm link: miniaturas de todas as obras e a foto ampliada aberta.
+  // Carga inicial.
   useEffect(() => {
-    if (!supabase || !session) return
-    const precisam = new Set<string>()
-    const coletar = (fotos: Foto[], incluirGrande: boolean) => {
-      for (const f of fotos) {
-        const t = caminhoNoBucket(f.thumb)
-        if (t && assinadas[t] === undefined) precisam.add(t)
-        if (incluirGrande) {
-          const g = caminhoNoBucket(f.url)
-          if (g && assinadas[g] === undefined) precisam.add(g)
-        }
-      }
-    }
-    for (const o of obras) coletar(o.fotos, false)
-    if (draft) coletar(draft.fotos, false)
-    if (draft && viewer !== null && draft.fotos[viewer]) coletar([draft.fotos[viewer]], true)
-    if (precisam.size === 0) return
+    if (!logado) return
     let alive = true
-    const pedidos = Array.from(precisam)
-    void supabase.storage.from(BUCKET).createSignedUrls(pedidos, 60 * 60 * 24).then(({ data }) => {
-      if (!alive) return
-      setAssinadas((atual) => {
-        const proximo = { ...atual }
-        // Quem não voltou assinado (arquivo ausente ou sem permissão) fica vazio, sem tentar de novo em loop.
-        for (const caminho of pedidos) proximo[caminho] = ''
-        for (const item of data ?? []) if (item.path && item.signedUrl) proximo[item.path] = item.signedUrl
-        return proximo
-      })
-    })
-    return () => { alive = false }
-  }, [supabase, session, obras, draft, viewer, assinadas])
-
-  // Os links duram 24 h: renova a cada 20 h para quem deixa a tela aberta.
-  useEffect(() => {
-    const t = window.setInterval(() => setAssinadas({}), 20 * 60 * 60 * 1000)
-    return () => window.clearInterval(t)
-  }, [])
-
-  // Carga inicial: Supabase (compartilhado) ou, sem ele, o navegador.
-  useEffect(() => {
-    if (supabase && (!userId || !papelPronto)) return
-    let alive = true
-    const load = async () => {
-      if (table) {
-        const { data, error } = await table.select('obras').eq('id', BOARD_ID).maybeSingle()
+    void api<{ dados: unknown }>('/api/board')
+      .then((r) => {
         if (!alive) return
-        if (error) setSyncError(true)
-        else if (data) {
-          const board = parseBoard(data.obras)
+        if (r.dados) {
+          const board = parseBoard(r.dados)
           setObras(board.obras)
           setSla(board.sla)
           setSlaAtividades(board.slaAtividades)
         }
-      } else {
-        try {
-          const saved = window.localStorage.getItem(LOCAL_KEY)
-          if (saved && alive) {
-            const board = parseBoard(JSON.parse(saved))
-            setObras(board.obras)
-            setSla(board.sla)
-            setSlaAtividades(board.slaAtividades)
-          }
-        } catch {}
-      }
-      if (alive) setLoaded(true)
-    }
-    void load()
-    return () => { alive = false }
-  }, [table, supabase, userId, papelPronto])
-
-  // Tempo real entre telas.
-  useEffect(() => {
-    if (!loaded || !supabase) return
-    const channel = supabase
-      .channel(`quintal-board-${BOARD_ID}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'quintal_board_state', filter: `id=eq.${BOARD_ID}` }, (payload) => {
-        if (payload.eventType === 'DELETE') return
-        const next = (payload.new as { obras?: unknown })?.obras
-        if (next && typeof next === 'object') {
-          const board = parseBoard(next)
-          skipNextSave.current = true
-          setObras(board.obras)
-          setSla(board.sla)
-          setSlaAtividades(board.slaAtividades)
-        }
+        setLoaded(true)
       })
-      .subscribe()
-    return () => { void supabase.removeChannel(channel) }
-  }, [loaded, supabase])
+      .catch((e) => {
+        if (!alive) return
+        if (e?.status === 401) setUsuario(null)
+        else setSyncError(true)
+        setLoaded(true)
+      })
+    return () => { alive = false }
+  }, [logado])
+
+  // Tempo real entre telas (SSE). O navegador reconecta sozinho se a conexão cair.
+  useEffect(() => {
+    if (!loaded) return
+    const fonte = new EventSource('/api/board/stream')
+    fonte.addEventListener('quadro', (ev) => {
+      try {
+        const msg = JSON.parse((ev as MessageEvent).data) as { dados?: unknown; cliente?: string }
+        if (msg.cliente === clienteId.current || !msg.dados) return
+        const board = parseBoard(msg.dados)
+        skipNextSave.current = true
+        setObras(board.obras)
+        setSla(board.sla)
+        setSlaAtividades(board.slaAtividades)
+      } catch {}
+    })
+    return () => fonte.close()
+  }, [loaded])
 
   // Salvamento.
   useEffect(() => {
     if (!loaded || !podeEditar) return
     if (skipNextSave.current) { skipNextSave.current = false; return }
-    // A coluna jsonb `obras` guarda { obras, sla }, para os prazos serem compartilhados sem alterar o banco.
-    const board = { obras, sla, slaAtividades }
-    if (table) {
-      void table.upsert({ id: BOARD_ID, obras: board, updated_at: new Date().toISOString() }).then(({ error }: { error: unknown }) => setSyncError(!!error))
-    } else {
-      try { window.localStorage.setItem(LOCAL_KEY, JSON.stringify(board)) } catch {}
-    }
-  }, [loaded, obras, sla, slaAtividades, table, podeEditar])
+    api('/api/board', { method: 'PUT', json: { dados: { obras, sla, slaAtividades }, cliente: clienteId.current } })
+      .then(() => setSyncError(false))
+      .catch((e) => { if (e?.status === 401) setUsuario(null); else setSyncError(true) })
+  }, [loaded, obras, sla, slaAtividades, podeEditar])
 
   const empreiteiros = useMemo(() => Array.from(new Set(obras.map((o) => o.empreiteiro.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [obras])
 
@@ -527,11 +435,10 @@ export function ObrasBoard() {
     showToast(`${obra.cliente} → ${etapa}`)
   }
 
-  /** Apaga arquivos do bucket (melhor esforço: falhas não travam o app). */
+  /** Apaga arquivos do servidor (melhor esforço: falhas não travam o app). */
   const apagarArquivos = (fotos: Foto[]) => {
-    if (!supabase || fotos.length === 0) return
-    const caminhos = fotos.flatMap((f) => [caminhoNoBucket(f.url), caminhoNoBucket(f.thumb)]).filter((c): c is string => !!c)
-    if (caminhos.length > 0) void supabase.storage.from(BUCKET).remove(Array.from(new Set(caminhos))).catch(() => {})
+    const caminhos = fotos.flatMap((f) => [caminhoNoServidor(f.url), caminhoNoServidor(f.thumb)]).filter((c): c is string => !!c)
+    if (caminhos.length > 0) void api('/api/fotos', { method: 'DELETE', json: { caminhos: Array.from(new Set(caminhos)) } }).catch(() => {})
   }
 
   const abrirNova = () => {
@@ -562,25 +469,13 @@ export function ObrasBoard() {
     for (const file of Array.from(files)) {
       try {
         const id = newId()
-        let url: string
-        let thumb: string
-        if (supabase) {
-          const [grande, pequena] = await Promise.all([reduzir(file, 1600, 0.82), reduzir(file, 480, 0.75)])
-          const bucket = supabase.storage.from(BUCKET)
-          const pathGrande = `${chave}/${id}.jpg`
-          const pathThumb = `${chave}/${id}-thumb.jpg`
-          const [a, b] = await Promise.all([
-            bucket.upload(pathGrande, grande, { contentType: 'image/jpeg', cacheControl: '31536000' }),
-            bucket.upload(pathThumb, pequena, { contentType: 'image/jpeg', cacheControl: '31536000' }),
-          ])
-          if (a.error || b.error) throw a.error ?? b.error
-          url = bucket.getPublicUrl(pathGrande).data.publicUrl
-          thumb = bucket.getPublicUrl(pathThumb).data.publicUrl
-        } else {
-          // Modo local: sem banco, guarda versões menores no próprio navegador.
-          url = await paraDataUrl(await reduzir(file, 900, 0.7))
-          thumb = await paraDataUrl(await reduzir(file, 320, 0.7))
-        }
+        const [grande, pequena] = await Promise.all([reduzir(file, 1600, 0.82), reduzir(file, 480, 0.75)])
+        const form = new FormData()
+        form.set('obra', chave)
+        form.set('id', id)
+        form.set('grande', grande, `${id}.jpg`)
+        form.set('thumb', pequena, `${id}-thumb.jpg`)
+        const { url, thumb } = await api<{ url: string; thumb: string }>('/api/fotos', { method: 'POST', body: form })
         novas.push({ id, url, thumb, data: new Date().toISOString(), legenda: '' })
       } catch {
         falhas += 1
@@ -647,34 +542,29 @@ export function ObrasBoard() {
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => (d ? { ...d, [key]: value } : d))
 
   const sair = async () => {
-    if (!supabase) return
-    await supabase.auth.signOut()
+    await api('/api/auth/logout', { method: 'POST' }).catch(() => {})
     setObras([])
     setSla(DEFAULT_SLA)
     setSlaAtividades({})
     setLoaded(false)
-    setPapel('leitor')
-    setPapelPronto(false)
-    setAssinadas({})
+    setUsuario(null)
     setDraft(null)
     setSlaDraft(null)
     setViewer(null)
     setConfigAberta(false)
   }
 
-  if (supabase && session === undefined) return <div className="auth-page"><p className="auth-carregando">Carregando…</p></div>
-  if (supabase && (!session || definirSenha)) {
-    return <Login supabase={supabase} modo={session && definirSenha ? 'definir' : 'entrar'} onSenhaDefinida={() => setDefinirSenha(false)} />
-  }
+  if (usuario === undefined) return <div className="auth-page"><p className="auth-carregando">Carregando…</p></div>
+  if (!usuario) return <Login onEntrou={() => { setLoaded(false); void api<{ usuario: { id: string; email: string; papel: Papel } | null }>('/api/auth/me').then((r) => setUsuario(r.usuario)) }} />
 
-  const emailLogado = session?.user.email ?? ''
+  const emailLogado = usuario.email
 
   return (
     <div className="shell">
       <header className="topbar">
         <img className="logo" src="/logo.png" alt="Quintal Construtora e Incorporadora" width={502} height={178} />
         <span className="topbar-tag">Acompanhamento de obras</span>
-        {supabase && session && (
+        {(
           <div className="topbar-user">
             <span className="user-email" title={emailLogado}>{emailLogado}</span>
             <span className={`papel-badge ${podeEditar ? 'editor' : 'leitor'}`}>{papel === 'admin' ? 'Administrador' : podeEditar ? 'Editor' : 'Somente consulta'}</span>
@@ -704,8 +594,7 @@ export function ObrasBoard() {
           </div>
         </div>
 
-        {!supabase && loaded && <p className="notice">Modo local: as obras ficam salvas só neste navegador. Para compartilhar entre aparelhos, configure o Supabase (veja o README).</p>}
-        {syncError && <p className="notice notice-error">Não foi possível sincronizar com o banco. Verifique a conexão e as permissões do Supabase.</p>}
+        {syncError && <p className="notice notice-error">Não foi possível sincronizar com o servidor. Verifique a conexão e tente de novo.</p>}
 
         <div className="board">
           {STAGES.map((etapa, i) => {
@@ -937,8 +826,8 @@ export function ObrasBoard() {
         </div>
       )}
 
-      {supabase && session && configAberta && (
-        <Configuracoes supabase={supabase} papel={papel} meuId={session.user.id} meuEmail={emailLogado} onFechar={() => setConfigAberta(false)} />
+      {configAberta && (
+        <Configuracoes papel={papel} meuId={usuario.id} meuEmail={emailLogado} onFechar={() => setConfigAberta(false)} />
       )}
 
       {toast && <div className="toast" role="status">{toast}</div>}

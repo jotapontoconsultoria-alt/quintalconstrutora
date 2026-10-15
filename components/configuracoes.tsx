@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Copy, KeyRound, RefreshCw, Trash2, UserPlus, X } from 'lucide-react'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { api } from '@/lib/api'
 
 export type PapelUsuario = 'admin' | 'editor' | 'leitor'
 
@@ -25,17 +25,17 @@ function formatarData(iso: string | null) {
 }
 
 type Props = {
-  supabase: SupabaseClient
   papel: PapelUsuario
   meuId: string
   meuEmail: string
   onFechar: () => void
 }
 
-export function Configuracoes({ supabase, papel, meuId, meuEmail, onFechar }: Props) {
+export function Configuracoes({ papel, meuId, meuEmail, onFechar }: Props) {
   const ehAdmin = papel === 'admin'
 
   // ----- Minha senha -----
+  const [senhaAtual, setSenhaAtual] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
   const [confirmacao, setConfirmacao] = useState('')
   const [msgSenha, setMsgSenha] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
@@ -47,9 +47,14 @@ export function Configuracoes({ supabase, papel, meuId, meuEmail, onFechar }: Pr
     if (novaSenha.length < 8) return setMsgSenha({ tipo: 'erro', texto: 'A senha precisa ter pelo menos 8 caracteres.' })
     if (novaSenha !== confirmacao) return setMsgSenha({ tipo: 'erro', texto: 'As senhas não conferem.' })
     setSalvandoSenha(true)
-    const { error } = await supabase.auth.updateUser({ password: novaSenha })
+    try {
+      await api('/api/auth/senha', { method: 'POST', json: { atual: senhaAtual, nova: novaSenha } })
+    } catch (e) {
+      setSalvandoSenha(false)
+      return setMsgSenha({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível alterar a senha.' })
+    }
     setSalvandoSenha(false)
-    if (error) return setMsgSenha({ tipo: 'erro', texto: error.message.toLowerCase().includes('same') ? 'Escolha uma senha diferente da atual.' : 'Não foi possível alterar a senha.' })
+    setSenhaAtual('')
     setNovaSenha('')
     setConfirmacao('')
     setMsgSenha({ tipo: 'ok', texto: 'Senha alterada.' })
@@ -66,23 +71,17 @@ export function Configuracoes({ supabase, papel, meuId, meuEmail, onFechar }: Pr
   const [copiado, setCopiado] = useState(false)
 
   const chamar = useCallback(async (acao: string, dados: Record<string, unknown> = {}) => {
-    const { data, error } = await supabase.functions.invoke('admin-usuarios', { body: { acao, ...dados } })
-    if (error) {
-      let texto = 'Não foi possível concluir. Tente novamente.'
-      try {
-        const corpo = await (error as { context?: Response }).context?.json?.()
-        if (corpo?.erro) texto = corpo.erro
-      } catch {}
-      throw new Error(texto)
-    }
-    if (data?.erro) throw new Error(data.erro)
-    return data
-  }, [supabase])
+    const { id, ...resto } = dados as { id?: string }
+    if (acao === 'listar') return api<{ usuarios: Usuario[] }>('/api/usuarios')
+    if (acao === 'criar') return api('/api/usuarios', { method: 'POST', json: dados })
+    if (acao === 'remover') return api(`/api/usuarios/${id}`, { method: 'DELETE' })
+    return api(`/api/usuarios/${id}`, { method: 'PATCH', json: resto }) // 'papel' e 'senha'
+  }, [])
 
   const carregar = useCallback(async () => {
     try {
-      const data = await chamar('listar')
-      setUsuarios(data.usuarios as Usuario[])
+      const data = (await chamar('listar')) as { usuarios: Usuario[] }
+      setUsuarios(data.usuarios)
       setErro('')
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar usuários.')
@@ -222,6 +221,10 @@ export function Configuracoes({ supabase, papel, meuId, meuEmail, onFechar }: Pr
         <section className="cfg-section">
           <h3>Minha senha</h3>
           <form onSubmit={trocarMinhaSenha}>
+            <div className="field">
+              <label htmlFor="senha-atual">Senha atual</label>
+              <input id="senha-atual" type="password" autoComplete="current-password" required value={senhaAtual} onChange={(e) => setSenhaAtual(e.target.value)} />
+            </div>
             <div className="cfg-duas">
               <div className="field">
                 <label htmlFor="minha-senha">Nova senha</label>
