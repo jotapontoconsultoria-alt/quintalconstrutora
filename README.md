@@ -43,3 +43,7 @@ Os dados ficam em `./data` (banco `quintal.db` e pasta `fotos`). Requer Node 22 
 - `lib/server/*`: banco SQLite, sessões e utilidades.
 - `scripts/`: importação do quadro antigo, backup.
 - Tudo roda em um único processo; para tempo real em várias instâncias seria preciso trocar o canal por Redis/Postgres (não é o caso aqui).
+
+## Obras finalizadas
+
+Quando uma obra chega à última etapa (ACABAMENTOS), o botão **Finalizar obra** (na janela da obra) a tira do quadro e a guarda em **Obras finalizadas**, no alto da tela. Ali dá para buscar e abrir qualquer obra e consultar o histórico completo: datas de entrada e saída de cada etapa, tempo em cada uma, atividades concluídas (com a data), links do Drive do projeto e fotos. Editores e administradores podem **Reabrir** a obra, que volta para ACABAMENTOS. O histórico de etapas passa a ser registrado a partir desta versão; obras antigas começam o registro na etapa em que estavam.

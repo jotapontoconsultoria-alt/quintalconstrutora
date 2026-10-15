@@ -260,3 +260,39 @@ h1 { margin: 0; font-family: 'Montserrat Variable', 'Montserrat', system-ui, -ap
 :root { --titulo: clamp(20px, 2.2vw, 30px); }
 .topbar-tag { font-size: var(--titulo); font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
 .toolbar h1 { font-size: calc(var(--titulo) * 0.6); text-transform: none; letter-spacing: -.005em; }
+
+/* Obras finalizadas */
+.ativ-data { margin-left: 8px; color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.btn-finalizar { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--leaf); color: #fff; font-weight: 700; cursor: pointer; }
+.btn-finalizar svg { width: 16px; height: 16px; }
+.btn-finalizar:hover { filter: brightness(.95); }
+.fin-busca { margin-bottom: 14px; width: 100%; }
+.fin-vazio { margin: 24px 0; color: var(--muted); text-align: center; }
+.fin-lista { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.fin-item { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fbfaf6; text-align: left; cursor: pointer; font: inherit; }
+.fin-item:hover { border-color: var(--green); background: #fff; }
+.fin-item strong { font-size: 15px; color: var(--green-strong); }
+.fin-item span { font-size: 13.5px; }
+.fin-item small { color: var(--muted); font-size: 12px; }
+.fin-titulo { margin: 0; font-family: 'Montserrat Variable', 'Montserrat', system-ui, sans-serif; font-size: 22px; font-weight: 700; color: var(--green-strong); }
+.fin-sub { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.fin-detalhes { margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--sand); font-size: 14px; white-space: pre-wrap; }
+.fin-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0 4px; }
+.fin-resumo div { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fbfaf6; }
+.fin-resumo span { display: block; color: var(--muted); font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.fin-resumo strong { font-size: 16px; }
+.fin-secao { margin: 22px 0 10px; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--green); }
+.fin-etapas { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.fin-etapa { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.fin-etapa-topo { display: flex; align-items: center; gap: 8px; }
+.fin-etapa-topo strong { flex: 1; font-size: 13px; letter-spacing: .05em; }
+.fin-datas { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; }
+.fin-ativ { margin: 10px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.fin-ativ li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 14px; color: var(--muted); }
+.fin-ativ li.feita { color: var(--ink); }
+.fin-ativ small { color: var(--muted); font-size: 12px; }
+.fin-marca { width: 16px; text-align: center; font-weight: 800; color: var(--green); }
+.fin-fotos { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+.fin-fotos a { display: flex; flex-direction: column; gap: 4px; color: inherit; text-decoration: none; }
+.fin-fotos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; background: var(--green-soft); }
+.fin-fotos small { color: var(--muted); font-size: 11.5px; }

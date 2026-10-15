@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, CheckSquare, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
+import { Archive, Camera, CheckSquare, Flag, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Login } from '@/components/login'
 import { Configuracoes } from '@/components/configuracoes'
+import { ObrasFinalizadas } from '@/components/obras-finalizadas'
 
 type Papel = 'admin' | 'editor' | 'leitor'
 
@@ -30,7 +31,7 @@ const ATIVIDADES: Record<Stage, readonly string[]> = {
 const LINK_ETAPAS: readonly Stage[] = ['PROJETO']
 
 /** Estado de cada atividade, guardado por obra com a chave `etapa|atividade`. */
-type Atividade = { feita: boolean; link?: string }
+type Atividade = { feita: boolean; link?: string; /** ISO: quando foi marcada como concluída. */ em?: string }
 type Atividades = Record<string, Atividade>
 const chaveAtividade = (etapa: Stage, nome: string) => `${etapa}|${nome}`
 
@@ -57,7 +58,9 @@ function sanitizeAtividades(raw: unknown): Atividades {
       if (!a || typeof a !== 'object') continue
       const feita = (a as Record<string, unknown>).feita === true
       const link = LINK_ETAPAS.includes(etapa) ? linkSeguro((a as Record<string, unknown>).link) : ''
-      if (feita || link) out[k] = link ? { feita, link } : { feita }
+      const emRaw = (a as Record<string, unknown>).em
+      const em = feita && typeof emRaw === 'string' && !Number.isNaN(new Date(emRaw).getTime()) ? emRaw : undefined
+      if (feita || link) out[k] = { feita, ...(link ? { link } : {}), ...(em ? { em } : {}) }
     }
   }
   return out
@@ -93,9 +96,13 @@ type Obra = {
   /** id da foto de capa; sem ele vale a primeira. */
   capa?: string
   atividades: Atividades
+  /** Cada vez que a obra entra em uma etapa (a primeira é o início do registro). */
+  historico: { etapa: Stage; em: string }[]
+  /** ISO: quando a obra foi finalizada (sai do quadro e vai para "Obras finalizadas"). */
+  finalizadaEm?: string
 }
 
-type Draft = Omit<Obra, 'id' | 'desde'> & { id?: string; novoId?: string }
+type Draft = Omit<Obra, 'id' | 'desde' | 'historico' | 'finalizadaEm'> & { id?: string; novoId?: string }
 
 const PREFIXO_FOTOS = '/api/fotos/'
 
@@ -260,7 +267,20 @@ function sanitize(raw: unknown): Obra[] {
       fotos: sanitizeFotos(o.fotos),
       capa: typeof o.capa === 'string' ? o.capa : undefined,
       atividades: sanitizeAtividades(o.atividades),
+      historico: sanitizeHistorico(o.historico, isStage(o.etapa) ? o.etapa : 'PROJETO', typeof o.desde === 'string' ? o.desde : new Date().toISOString()),
+      finalizadaEm: typeof o.finalizadaEm === 'string' && !Number.isNaN(new Date(o.finalizadaEm).getTime()) ? o.finalizadaEm : undefined,
     }))
+}
+
+function sanitizeHistorico(raw: unknown, etapa: Stage, desde: string): Obra['historico'] {
+  const lista = Array.isArray(raw)
+    ? raw
+        .filter((h): h is Record<string, unknown> => !!h && typeof h === 'object')
+        .filter((h) => isStage(h.etapa) && typeof h.em === 'string' && !Number.isNaN(new Date(h.em).getTime()))
+        .map((h) => ({ etapa: h.etapa as Stage, em: h.em as string }))
+    : []
+  // Obras anteriores a este recurso: o registro começa na etapa em que estavam.
+  return lista.length > 0 ? lista : [{ etapa, em: desde }]
 }
 
 function sanitizeFotos(raw: unknown): Foto[] {
@@ -348,6 +368,7 @@ export function ObrasBoard() {
   const papel: Papel = usuario?.papel ?? 'leitor'
   const podeEditar = papel === 'editor' || papel === 'admin'
   const [configAberta, setConfigAberta] = useState(false)
+  const [finalizadasAberta, setFinalizadasAberta] = useState(false)
   const clienteId = useRef(newId())
   const logado = !!usuario
 
@@ -426,12 +447,12 @@ export function ObrasBoard() {
 
   const filtradas = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return obras.filter((o) => (!q || `${o.cliente} ${o.endereco} ${o.detalhes}`.toLowerCase().includes(q)) && (filtroEmpreiteiro === 'Todos' || o.empreiteiro === filtroEmpreiteiro))
+    return obras.filter((o) => !o.finalizadaEm && (!q || `${o.cliente} ${o.endereco} ${o.detalhes}`.toLowerCase().includes(q)) && (filtroEmpreiteiro === 'Todos' || o.empreiteiro === filtroEmpreiteiro))
   }, [obras, search, filtroEmpreiteiro])
 
   const moverPara = (obra: Obra, etapa: Stage) => {
     if (!podeEditar || obra.etapa === etapa) return
-    setObras((items) => items.map((o) => (o.id === obra.id ? { ...o, etapa, desde: new Date().toISOString() } : o)))
+    setObras((items) => items.map((o) => (o.id === obra.id ? { ...o, etapa, desde: new Date().toISOString(), historico: [...o.historico, { etapa, em: new Date().toISOString() }] } : o)))
     showToast(`${obra.cliente} → ${etapa}`)
   }
 
@@ -500,16 +521,27 @@ export function ObrasBoard() {
     })
   }
 
-  const salvar = (e: React.FormEvent) => {
-    e.preventDefault()
+  const salvar = (e?: React.FormEvent, finalizar = false) => {
+    e?.preventDefault()
     if (!draft || !podeEditar) return
+    if (finalizar && (!draft.cliente.trim() || !draft.endereco.trim() || !draft.empreiteiro.trim())) return showToast('Preencha cliente, endereço e empreiteiro antes de finalizar')
     const { novoId, id: _id, ...campos } = draft
     const limpo = { ...campos, cliente: draft.cliente.trim(), endereco: draft.endereco.trim(), detalhes: draft.detalhes.trim(), empreiteiro: draft.empreiteiro.trim() }
     if (draft.id) {
-      setObras((items) => items.map((o) => (o.id === draft.id ? { ...o, ...limpo, id: o.id, desde: o.etapa === limpo.etapa ? o.desde : new Date().toISOString() } : o)))
-      showToast('Obra atualizada')
+      const agoraIso = new Date().toISOString()
+      setObras((items) => items.map((o) => (o.id === draft.id
+        ? {
+            ...o,
+            ...limpo,
+            id: o.id,
+            desde: o.etapa === limpo.etapa ? o.desde : agoraIso,
+            historico: o.etapa === limpo.etapa ? o.historico : [...o.historico, { etapa: limpo.etapa, em: agoraIso }],
+            finalizadaEm: finalizar ? agoraIso : o.finalizadaEm,
+          }
+        : o)))
+      showToast(finalizar ? 'Obra finalizada e arquivada' : 'Obra atualizada')
     } else {
-      setObras((items) => [...items, { ...limpo, id: novoId ?? newId(), desde: new Date().toISOString() }])
+      setObras((items) => { const agoraIso = new Date().toISOString(); return [...items, { ...limpo, id: novoId ?? newId(), desde: agoraIso, historico: [{ etapa: limpo.etapa, em: agoraIso }] }] })
       showToast('Obra adicionada')
     }
     apagarArquivos(sessaoFotos.current.removidas)
@@ -581,7 +613,7 @@ export function ObrasBoard() {
         <div className="toolbar">
           <div>
             <p className="eyebrow">OBRAS EM EXECUÇÃO</p>
-            <h1>Painel de Acompanhamento <span className="total">{obras.length}</span></h1>
+            <h1>Painel de Acompanhamento <span className="total">{obras.filter((o) => !o.finalizadaEm).length}</span></h1>
           </div>
           <div className="tools">
             <label className="search">
@@ -593,6 +625,7 @@ export function ObrasBoard() {
               {empreiteiros.map((n) => <option key={n}>{n}</option>)}
             </select>
             {podeEditar && <button className="btn-ghost" onClick={() => setSlaDraft({ etapas: { ...sla }, atividades: { ...slaAtividades } })}><Clock3 aria-hidden="true" /> SLA das etapas</button>}
+            <button className="btn-ghost" onClick={() => setFinalizadasAberta(true)}><Archive aria-hidden="true" /> Obras finalizadas{obras.some((o) => o.finalizadaEm) ? ` (${obras.filter((o) => o.finalizadaEm).length})` : ''}</button>
             {podeEditar && <button className="btn-primary" onClick={abrirNova}><Plus aria-hidden="true" /> Nova obra</button>}
           </div>
         </div>
@@ -692,9 +725,11 @@ export function ObrasBoard() {
                               setDraft((d) => {
                                 if (!d) return d
                                 const nova: Atividade = { ...d.atividades[k], feita: d.atividades[k]?.feita ?? false, ...mudanca }
+                                if (mudanca.feita === true && !d.atividades[k]?.feita) nova.em = new Date().toISOString()
+                                if (!nova.feita) delete nova.em
                                 const atividades = { ...d.atividades }
                                 if (!nova.feita && !nova.link) delete atividades[k]
-                                else atividades[k] = nova.link ? nova : { feita: nova.feita }
+                                else atividades[k] = { feita: nova.feita, ...(nova.link ? { link: nova.link } : {}), ...(nova.em ? { em: nova.em } : {}) }
                                 return { ...d, atividades }
                               })
                             return (
@@ -702,6 +737,7 @@ export function ObrasBoard() {
                                 <label className="ativ-check">
                                   <input type="checkbox" disabled={!podeEditar} checked={!!a?.feita} onChange={(e) => atualizar({ feita: e.target.checked })} />
                                   <span>{nome}</span>
+                                  {a?.feita && a.em && <small className="ativ-data">{formatarData(a.em)}</small>}
                                 </label>
                                 {(() => {
                                   const meta = slaAtividades[k]
@@ -740,6 +776,9 @@ export function ObrasBoard() {
             <div className="modal-actions">
               {podeEditar && draft.id && <button type="button" className="btn-danger" onClick={excluir}><Trash2 aria-hidden="true" /> Excluir</button>}
               <span className="spacer" />
+              {podeEditar && draft.id && draft.etapa === 'ACABAMENTOS' && obras.find((o) => o.id === draft.id)?.etapa === 'ACABAMENTOS' && (
+                <button type="button" className="btn-finalizar" disabled={enviando} onClick={() => { if (window.confirm(`Finalizar a obra de ${draft.cliente}? Ela sai do quadro e fica guardada em "Obras finalizadas", com todo o histórico.`)) salvar(undefined, true) }}><Flag aria-hidden="true" /> Finalizar obra</button>
+              )}
               <button type="button" className="btn-ghost" onClick={fecharDraft}>{podeEditar ? 'Cancelar' : 'Fechar'}</button>
               {podeEditar && <button type="submit" className="btn-primary" disabled={enviando}>Salvar</button>}
             </div>
@@ -831,6 +870,24 @@ export function ObrasBoard() {
 
       {configAberta && (
         <Configuracoes papel={papel} meuId={usuario.id} meuEmail={emailLogado} onFechar={() => setConfigAberta(false)} />
+      )}
+
+      {finalizadasAberta && (
+        <ObrasFinalizadas
+          obras={obras.filter((o) => !!o.finalizadaEm) as (Obra & { finalizadaEm: string })[]}
+          etapas={STAGES}
+          atividades={ATIVIDADES}
+          chave={(etapa, nome) => chaveAtividade(etapa as Stage, nome)}
+          comLink={(etapa) => LINK_ETAPAS.includes(etapa as Stage)}
+          resolver={resolver}
+          podeEditar={podeEditar}
+          onReabrir={(id) => {
+            const agoraIso = new Date().toISOString()
+            setObras((items) => items.map((o) => (o.id === id ? { ...o, finalizadaEm: undefined, etapa: 'ACABAMENTOS', desde: agoraIso, historico: [...o.historico, { etapa: 'ACABAMENTOS', em: agoraIso }] } : o)))
+            showToast('Obra reaberta em ACABAMENTOS')
+          }}
+          onFechar={() => setFinalizadasAberta(false)}
+        />
       )}
 
       {toast && <div className="toast" role="status">{toast}</div>}
