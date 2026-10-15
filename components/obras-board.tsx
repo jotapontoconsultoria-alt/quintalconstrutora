@@ -581,7 +581,7 @@ export function ObrasBoard() {
         <div className="toolbar">
           <div>
             <p className="eyebrow">OBRAS EM EXECUÇÃO</p>
-            <h1>Quadro de obras <span className="total">{obras.length}</span></h1>
+            <h1>Painel de Acompanhamento <span className="total">{obras.length}</span></h1>
           </div>
           <div className="tools">
             <label className="search">
