@@ -1,0 +1,13 @@
+# Variante para VPS que já tem o nginx rodando nas portas 80/443 (por exemplo, com outro site).
+# Aqui só o painel sobe, em 127.0.0.1:3100; o nginx do servidor faz o HTTPS e repassa o tráfego.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_SENHA: ${ADMIN_SENHA}
+    volumes:
+      - ./dados:/data
+    ports:
+      - "127.0.0.1:3100:3000"
