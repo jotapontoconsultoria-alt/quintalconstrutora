@@ -254,3 +254,7 @@ h1 { margin: 0; font-family: 'Montserrat Variable', 'Montserrat', system-ui, -ap
 
 .column-head h2, .auth-title { font-family: 'Montserrat Variable', 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; }
 .eyebrow { font-family: 'Montserrat Variable', 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; }
+
+/* Título principal em caixa alta */
+.toolbar h1 { text-transform: uppercase; font-size: clamp(24px, 2.4vw, 34px); letter-spacing: .03em; }
+.toolbar h1 .total { text-transform: none; letter-spacing: 0; }
