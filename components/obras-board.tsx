@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, Camera, FolderOpen, CheckSquare, Flag, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
+import { Archive, Camera, FolderOpen, User, CheckSquare, Flag, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Login } from '@/components/login'
 import { Configuracoes } from '@/components/configuracoes'
@@ -85,8 +85,21 @@ type Foto = {
 
 type Obra = {
   id: string
-  cliente: string
+  /** Nome da obra (título do card). Obras antigas não têm e usam o nome do cliente. */
+  nomeObra: string
   endereco: string
+  condominio: string
+  lote: string
+  /** Área construída em m² (texto, como digitada). */
+  area: string
+  pavimentos: string
+  lazer: boolean
+  piscina: boolean
+  spa: boolean
+  cliente: string
+  contato1: string
+  contato2: string
+  /** Texto livre das versões anteriores (não aparece mais na tela, fica guardado). */
   detalhes: string
   empreiteiro: string
   etapa: Stage
@@ -105,6 +118,9 @@ type Obra = {
 type Draft = Omit<Obra, 'id' | 'desde' | 'historico' | 'finalizadaEm'> & { id?: string; novoId?: string }
 
 const PREFIXO_FOTOS = '/api/fotos/'
+
+/** Título da obra no card e nas listas. */
+const tituloDe = (o: { nomeObra: string; cliente: string }) => o.nomeObra.trim() || o.cliente
 
 function capaDe(obra: Pick<Obra, 'fotos' | 'capa'>): Foto | undefined {
   return obra.fotos.find((f) => f.id === obra.capa) ?? obra.fotos[0]
@@ -162,7 +178,7 @@ const DEFAULT_SLA: Sla = {
   'ACABAMENTOS': 30,
 }
 
-const emptyDraft: Draft = { cliente: '', endereco: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO', fotos: [], atividades: {} }
+const emptyDraft: Draft = { nomeObra: '', endereco: '', condominio: '', lote: '', area: '', pavimentos: '', lazer: false, piscina: false, spa: false, cliente: '', contato1: '', contato2: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO', fotos: [], atividades: {} }
 
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
@@ -258,8 +274,18 @@ function sanitize(raw: unknown): Obra[] {
     .filter((o): o is Record<string, unknown> => !!o && typeof o === 'object')
     .map((o) => ({
       id: typeof o.id === 'string' ? o.id : newId(),
-      cliente: String(o.cliente ?? ''),
+      nomeObra: String(o.nomeObra ?? ''),
       endereco: String(o.endereco ?? ''),
+      condominio: String(o.condominio ?? ''),
+      lote: String(o.lote ?? ''),
+      area: String(o.area ?? ''),
+      pavimentos: String(o.pavimentos ?? ''),
+      lazer: o.lazer === true,
+      piscina: o.lazer === true && o.piscina === true,
+      spa: o.lazer === true && o.spa === true,
+      cliente: String(o.cliente ?? ''),
+      contato1: String(o.contato1 ?? ''),
+      contato2: String(o.contato2 ?? ''),
       detalhes: String(o.detalhes ?? ''),
       empreiteiro: String(o.empreiteiro ?? ''),
       etapa: isStage(o.etapa) ? o.etapa : 'PROJETO',
@@ -317,12 +343,16 @@ function ObraCard({ obra, sla, agora, podeEditar, resolver, onOpen, onDragStart 
       }}
     >
       <div className={`obra-capa ${capaSrc ? '' : 'vazia'}`}>
-        {capaSrc ? <img src={capaSrc} alt={capa?.legenda || `Foto da obra de ${obra.cliente}`} loading="lazy" draggable={false} /> : <Camera aria-hidden="true" />}
+        {capaSrc ? <img src={capaSrc} alt={capa?.legenda || `Foto da obra ${tituloDe(obra)}`} loading="lazy" draggable={false} /> : <Camera aria-hidden="true" />}
         {obra.fotos.length > 1 && <span className="obra-capa-n"><Camera aria-hidden="true" />{obra.fotos.length}</span>}
       </div>
-      <strong className="obra-cliente">{obra.cliente}</strong>
+      <strong className="obra-cliente">{tituloDe(obra)}</strong>
+      {obra.nomeObra.trim() && obra.cliente && <span className="obra-cliente-nome"><User aria-hidden="true" />{obra.cliente}</span>}
       <span className="obra-endereco"><MapPin aria-hidden="true" />{obra.endereco}</span>
-      {obra.detalhes && <p className="obra-detalhes">{obra.detalhes}</p>}
+      {(() => {
+        const partes = [obra.condominio && `Cond. ${obra.condominio}`, obra.lote && `Lote ${obra.lote}`, obra.area && `${obra.area} m²`, obra.pavimentos && `${obra.pavimentos} pav.`, obra.lazer && (obra.piscina || obra.spa ? `Lazer: ${[obra.piscina && 'piscina', obra.spa && 'spa'].filter(Boolean).join(' e ')}` : 'Lazer')].filter(Boolean)
+        return partes.length > 0 ? <p className="obra-detalhes">{partes.join(' · ')}</p> : null
+      })()}
       {restantes !== null && (
         <span className={`obra-prazo ${restantes < 0 ? 'late' : restantes <= 5 ? 'warn' : 'ok'}`} title={`Prazo da etapa: ${sla[obra.etapa]} dias`}>
           <Clock3 aria-hidden="true" />{textoPrazo(restantes)}
@@ -458,13 +488,13 @@ export function ObrasBoard() {
 
   const filtradas = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return obras.filter((o) => !o.finalizadaEm && (!q || `${o.cliente} ${o.endereco} ${o.detalhes}`.toLowerCase().includes(q)) && (filtroEmpreiteiro === 'Todos' || o.empreiteiro === filtroEmpreiteiro))
+    return obras.filter((o) => !o.finalizadaEm && (!q || `${o.nomeObra} ${o.cliente} ${o.endereco} ${o.condominio} ${o.lote} ${o.detalhes}`.toLowerCase().includes(q)) && (filtroEmpreiteiro === 'Todos' || o.empreiteiro === filtroEmpreiteiro))
   }, [obras, search, filtroEmpreiteiro])
 
   const moverPara = (obra: Obra, etapa: Stage) => {
     if (!podeEditar || obra.etapa === etapa) return
     setObras((items) => items.map((o) => (o.id === obra.id ? { ...o, etapa, desde: new Date().toISOString(), historico: [...o.historico, { etapa, em: new Date().toISOString() }] } : o)))
-    showToast(`${obra.cliente} → ${etapa}`)
+    showToast(`${tituloDe(obra)} → ${etapa}`)
   }
 
   /** Apaga arquivos do servidor (melhor esforço: falhas não travam o app). */
@@ -481,7 +511,7 @@ export function ObrasBoard() {
 
   const abrirEdicao = (o: Obra) => {
     sessaoFotos.current = { novas: [], removidas: [] }
-    setDraft({ id: o.id, cliente: o.cliente, endereco: o.endereco, detalhes: o.detalhes, empreiteiro: o.empreiteiro, etapa: o.etapa, fotos: o.fotos, capa: o.capa, atividades: o.atividades })
+    setDraft({ id: o.id, nomeObra: o.nomeObra, endereco: o.endereco, condominio: o.condominio, lote: o.lote, area: o.area, pavimentos: o.pavimentos, lazer: o.lazer, piscina: o.piscina, spa: o.spa, cliente: o.cliente, contato1: o.contato1, contato2: o.contato2, detalhes: o.detalhes, empreiteiro: o.empreiteiro, etapa: o.etapa, fotos: o.fotos, capa: o.capa, atividades: o.atividades })
   }
 
   /** Fecha sem salvar: descarta o que foi enviado nesta sessão. */
@@ -535,9 +565,24 @@ export function ObrasBoard() {
   const salvar = (e?: React.FormEvent, finalizar = false) => {
     e?.preventDefault()
     if (!draft || !podeEditar) return
-    if (finalizar && (!draft.cliente.trim() || !draft.endereco.trim() || !draft.empreiteiro.trim())) return showToast('Preencha cliente, endereço e empreiteiro antes de finalizar')
+    if (finalizar && (!draft.nomeObra.trim() || !draft.endereco.trim() || !draft.cliente.trim() || !draft.empreiteiro.trim())) return showToast('Preencha nome da obra, endereço, cliente e empreiteiro antes de finalizar')
     const { novoId, id: _id, ...campos } = draft
-    const limpo = { ...campos, cliente: draft.cliente.trim(), endereco: draft.endereco.trim(), detalhes: draft.detalhes.trim(), empreiteiro: draft.empreiteiro.trim() }
+    const limpo = {
+      ...campos,
+      nomeObra: draft.nomeObra.trim(),
+      endereco: draft.endereco.trim(),
+      condominio: draft.condominio.trim(),
+      lote: draft.lote.trim(),
+      area: draft.area.trim(),
+      pavimentos: draft.pavimentos.trim(),
+      piscina: draft.lazer && draft.piscina,
+      spa: draft.lazer && draft.spa,
+      cliente: draft.cliente.trim(),
+      contato1: draft.contato1.trim(),
+      contato2: draft.contato2.trim(),
+      detalhes: draft.detalhes,
+      empreiteiro: draft.empreiteiro.trim(),
+    }
     if (draft.id) {
       const agoraIso = new Date().toISOString()
       setObras((items) => items.map((o) => (o.id === draft.id
@@ -572,7 +617,7 @@ export function ObrasBoard() {
 
   const excluir = () => {
     if (!podeEditar || !draft?.id) return
-    if (!window.confirm(`Excluir a obra de ${draft.cliente}? Essa ação não pode ser desfeita.`)) return
+    if (!window.confirm(`Excluir a obra ${draft.nomeObra || draft.cliente}? Essa ação não pode ser desfeita.`)) return
     const original = obras.find((o) => o.id === draft.id)
     apagarArquivos([...(original?.fotos ?? []), ...sessaoFotos.current.novas])
     sessaoFotos.current = { novas: [], removidas: [] }
@@ -629,7 +674,7 @@ export function ObrasBoard() {
           <div className="tools">
             <label className="search">
               <Search aria-hidden="true" />
-              <input aria-label="Buscar obra" placeholder="Buscar cliente ou endereço" value={search} onChange={(e) => setSearch(e.target.value)} />
+              <input aria-label="Buscar obra" placeholder="Buscar obra, cliente ou endereço" value={search} onChange={(e) => setSearch(e.target.value)} />
             </label>
             <select className="select" aria-label="Filtrar por empreiteiro" value={filtroEmpreiteiro} onChange={(e) => setFiltroEmpreiteiro(e.target.value)}>
               <option>Todos</option>
@@ -669,9 +714,30 @@ export function ObrasBoard() {
               <button type="button" className="icon-btn" aria-label="Fechar" onClick={fecharDraft}><X /></button>
             </div>
             <fieldset className="form-lock" disabled={!podeEditar}>
-            <div className="field"><label htmlFor="cliente">Nome do cliente</label><input id="cliente" required value={draft.cliente} onChange={(e) => set('cliente', e.target.value)} placeholder="Ex.: Maria Silva" autoFocus /></div>
-            <div className="field"><label htmlFor="endereco">Endereço da obra</label><input id="endereco" required value={draft.endereco} onChange={(e) => set('endereco', e.target.value)} placeholder="Rua, número, bairro, cidade" /></div>
-            <div className="field"><label htmlFor="detalhes">Detalhes da obra</label><textarea id="detalhes" value={draft.detalhes} onChange={(e) => set('detalhes', e.target.value)} placeholder="Metragem, tipo de obra, observações, pendências…" /></div>
+            <div className="field"><label htmlFor="nomeObra">Nome da obra</label><input id="nomeObra" required value={draft.nomeObra} onChange={(e) => set('nomeObra', e.target.value)} placeholder="Ex.: Residência Silva" autoFocus /></div>
+            <div className="field"><label htmlFor="endereco">Endereço</label><input id="endereco" required value={draft.endereco} onChange={(e) => set('endereco', e.target.value)} placeholder="Rua, número, bairro, cidade" /></div>
+            <div className="field"><label htmlFor="condominio">Condomínio</label><input id="condominio" value={draft.condominio} onChange={(e) => set('condominio', e.target.value)} placeholder="Nome do condomínio (se houver)" /></div>
+            <div className="field"><label htmlFor="lote">Lote</label><input id="lote" value={draft.lote} onChange={(e) => set('lote', e.target.value)} placeholder="Ex.: Quadra 4, Lote 12" /></div>
+            <div className="field"><label htmlFor="area">Área construída (m²)</label><input id="area" inputMode="decimal" value={draft.area} onChange={(e) => set('area', e.target.value)} placeholder="Ex.: 250" /></div>
+            <div className="field"><label htmlFor="pavimentos">Pavimentos</label><input id="pavimentos" type="number" inputMode="numeric" min={1} max={30} value={draft.pavimentos} onChange={(e) => set('pavimentos', e.target.value)} placeholder="Ex.: 2" /></div>
+            <div className="field">
+              <label>Lazer</label>
+              <div className="stage-options">
+                <label className={draft.lazer ? 'active' : ''}><input type="radio" name="lazer" checked={draft.lazer} onChange={() => set('lazer', true)} />Sim</label>
+                <label className={!draft.lazer ? 'active' : ''}><input type="radio" name="lazer" checked={!draft.lazer} onChange={() => setDraft((d) => (d ? { ...d, lazer: false, piscina: false, spa: false } : d))} />Não</label>
+              </div>
+              {draft.lazer && (
+                <div className="stage-options">
+                  <label className={draft.piscina ? 'active' : ''}><input type="checkbox" checked={draft.piscina} onChange={(e) => set('piscina', e.target.checked)} />Piscina</label>
+                  <label className={draft.spa ? 'active' : ''}><input type="checkbox" checked={draft.spa} onChange={(e) => set('spa', e.target.checked)} />Spa</label>
+                </div>
+              )}
+            </div>
+            <div className="field"><label htmlFor="cliente">Nome do cliente</label><input id="cliente" required value={draft.cliente} onChange={(e) => set('cliente', e.target.value)} placeholder="Ex.: Maria Silva" /></div>
+            <div className="cfg-duas">
+              <div className="field"><label htmlFor="contato1">Contato 1</label><input id="contato1" type="tel" inputMode="tel" value={draft.contato1} onChange={(e) => set('contato1', e.target.value)} placeholder="(00) 00000-0000" /></div>
+              <div className="field"><label htmlFor="contato2">Contato 2</label><input id="contato2" type="tel" inputMode="tel" value={draft.contato2} onChange={(e) => set('contato2', e.target.value)} placeholder="(00) 00000-0000" /></div>
+            </div>
             <div className="field">
               <label htmlFor="empreiteiro">Empreiteiro responsável</label>
               <input id="empreiteiro" required list="empreiteiros" value={draft.empreiteiro} onChange={(e) => set('empreiteiro', e.target.value)} placeholder="Nome do empreiteiro" />
@@ -710,8 +776,9 @@ export function ObrasBoard() {
                 ))}
               </div>
             </fieldset>
+            <div className="ordem-blocos">
             {(podeEditar || ATIVIDADES.PROJETO.some((n) => linkSeguro(draft.atividades[chaveAtividade('PROJETO', n)]?.link))) && (
-              <div className="field">
+              <div className="field" style={{ order: draft.etapa === 'PROJETO' ? 1 : 2 }}>
                 <label>Projetos no Drive</label>
                 <div className="drive-bloco">
                   {ATIVIDADES.PROJETO.map((nome) => {
@@ -750,7 +817,7 @@ export function ObrasBoard() {
                 <p className="galeria-dica">Os projetos ficam disponíveis em todas as etapas da obra.</p>
               </div>
             )}
-            <div className="field">
+            <div className="field" style={{ order: draft.etapa === 'PROJETO' ? 2 : 1 }}>
               <label>Atividades da etapa: {draft.etapa}</label>
               <div className="atividades">
                 {STAGES.map((etapa, i) => {
@@ -808,11 +875,12 @@ export function ObrasBoard() {
                 })}
               </div>
             </div>
+            </div>
             <div className="modal-actions">
               {podeEditar && draft.id && <button type="button" className="btn-danger" onClick={excluir}><Trash2 aria-hidden="true" /> Excluir</button>}
               <span className="spacer" />
               {podeEditar && draft.id && draft.etapa === 'ACABAMENTOS' && obras.find((o) => o.id === draft.id)?.etapa === 'ACABAMENTOS' && (
-                <button type="button" className="btn-finalizar" disabled={enviando} onClick={() => { if (window.confirm(`Finalizar a obra de ${draft.cliente}? Ela sai do quadro e fica guardada em "Obras finalizadas", com todo o histórico.`)) salvar(undefined, true) }}><Flag aria-hidden="true" /> Finalizar obra</button>
+                <button type="button" className="btn-finalizar" disabled={enviando} onClick={() => { if (window.confirm(`Finalizar a obra ${draft.nomeObra || draft.cliente}? Ela sai do quadro e fica guardada em "Obras finalizadas", com todo o histórico.`)) salvar(undefined, true) }}><Flag aria-hidden="true" /> Finalizar obra</button>
               )}
               <button type="button" className="btn-ghost" onClick={fecharDraft}>{podeEditar ? 'Cancelar' : 'Fechar'}</button>
               {podeEditar && <button type="submit" className="btn-primary" disabled={enviando}>Salvar</button>}

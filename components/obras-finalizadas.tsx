@@ -7,7 +7,17 @@ type Foto = { id: string; url: string; thumb: string; data: string; legenda: str
 type Atividade = { feita: boolean; link?: string; em?: string }
 type ObraFinal = {
   id: string
+  nomeObra: string
   cliente: string
+  condominio: string
+  lote: string
+  area: string
+  pavimentos: string
+  lazer: boolean
+  piscina: boolean
+  spa: boolean
+  contato1: string
+  contato2: string
   endereco: string
   detalhes: string
   empreiteiro: string
@@ -59,7 +69,7 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
   const lista = useMemo(() => {
     const q = busca.trim().toLowerCase()
     return obras
-      .filter((o) => !q || `${o.cliente} ${o.endereco} ${o.empreiteiro}`.toLowerCase().includes(q))
+      .filter((o) => !q || `${o.nomeObra} ${o.cliente} ${o.endereco} ${o.condominio} ${o.empreiteiro}`.toLowerCase().includes(q))
       .sort((a, b) => b.finalizadaEm.localeCompare(a.finalizadaEm))
   }, [obras, busca])
 
@@ -78,7 +88,7 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
             {obras.length > 0 && (
               <label className="search fin-busca">
                 <Search aria-hidden="true" />
-                <input aria-label="Buscar obra finalizada" placeholder="Buscar cliente, endereço ou empreiteiro" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                <input aria-label="Buscar obra finalizada" placeholder="Buscar obra, cliente, endereço ou empreiteiro" value={busca} onChange={(e) => setBusca(e.target.value)} />
               </label>
             )}
             {obras.length === 0 ? (
@@ -90,7 +100,7 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
                 {lista.map((o) => (
                   <li key={o.id}>
                     <button type="button" className="fin-item" onClick={() => setAbertaId(o.id)}>
-                      <strong>{o.cliente}</strong>
+                      <strong>{o.nomeObra.trim() || o.cliente}</strong>
                       <span>{o.endereco}</span>
                       <small>Empreiteiro: {o.empreiteiro || '—'} · Finalizada em {data(o.finalizadaEm)} · Duração: {textoDias(dias(o.historico[0]?.em ?? o.finalizadaEm, o.finalizadaEm))}</small>
                     </button>
@@ -105,9 +115,16 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
               <button type="button" className="btn-ghost" onClick={() => setAbertaId(null)}><ArrowLeft aria-hidden="true" /> Voltar</button>
               <button type="button" className="icon-btn" aria-label="Fechar" onClick={onFechar}><X /></button>
             </div>
-            <h2 className="fin-titulo">{aberta.cliente}</h2>
+            <h2 className="fin-titulo">{aberta.nomeObra.trim() || aberta.cliente}</h2>
             <p className="fin-sub">{aberta.endereco} · Empreiteiro: {aberta.empreiteiro || '—'}</p>
-            {aberta.detalhes && <p className="fin-detalhes">{aberta.detalhes}</p>}
+            {(() => {
+              const itens: [string, string][] = [
+                ['Cliente', aberta.cliente], ['Contato', [aberta.contato1, aberta.contato2].filter(Boolean).join(' | ')],
+                ['Condomínio', aberta.condominio], ['Lote', aberta.lote], ['Área construída', aberta.area ? `${aberta.area} m²` : ''],
+                ['Pavimentos', aberta.pavimentos], ['Lazer', aberta.lazer ? (['piscina', 'spa'].filter((k) => (k === 'piscina' ? aberta.piscina : aberta.spa)).join(' e ') || 'Sim') : 'Não'],
+              ]
+              return <p className="fin-detalhes">{itens.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' · ')}</p>
+            })()}
             <div className="fin-resumo">
               <div><span>Início do registro</span><strong>{data(aberta.historico[0]?.em ?? aberta.finalizadaEm)}</strong></div>
               <div><span>Finalizada em</span><strong>{data(aberta.finalizadaEm)}</strong></div>
@@ -171,7 +188,7 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
             {podeEditar && (
               <div className="modal-actions">
                 <span className="spacer" />
-                <button type="button" className="btn-ghost" onClick={() => { if (window.confirm(`Reabrir a obra de ${aberta.cliente}? Ela volta ao quadro, na etapa ACABAMENTOS.`)) { onReabrir(aberta.id); setAbertaId(null) } }}><RotateCcw aria-hidden="true" /> Reabrir obra</button>
+                <button type="button" className="btn-ghost" onClick={() => { if (window.confirm(`Reabrir a obra ${aberta.nomeObra.trim() || aberta.cliente}? Ela volta ao quadro, na etapa ACABAMENTOS.`)) { onReabrir(aberta.id); setAbertaId(null) } }}><RotateCcw aria-hidden="true" /> Reabrir obra</button>
               </div>
             )}
           </>
