@@ -296,3 +296,14 @@ h1 { margin: 0; font-family: 'Montserrat Variable', 'Montserrat', system-ui, -ap
 .fin-fotos a { display: flex; flex-direction: column; gap: 4px; color: inherit; text-decoration: none; }
 .fin-fotos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; background: var(--green-soft); }
 .fin-fotos small { color: var(--muted); font-size: 11.5px; }
+
+/* Projetos no Drive: bloco fixo na obra e atalhos no card */
+.drive-bloco { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.drive-linha { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.drive-nome { flex: 0 0 120px; font-size: 13.5px; font-weight: 700; }
+.drive-input { flex: 1 1 200px; min-width: 0; }
+.obra-drive { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.obra-drive-rotulo { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11.5px; font-weight: 700; }
+.obra-drive-rotulo svg { width: 14px; height: 14px; }
+.obra-drive a { padding: 2px 8px; border-radius: 999px; background: var(--green-soft); color: var(--green); font-size: 11.5px; font-weight: 700; text-decoration: none; }
+.obra-drive a:hover { background: var(--green); color: #fff; }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, Camera, CheckSquare, Flag, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
+import { Archive, Camera, FolderOpen, CheckSquare, Flag, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Login } from '@/components/login'
 import { Configuracoes } from '@/components/configuracoes'
@@ -335,6 +335,17 @@ function ObraCard({ obra, sla, agora, podeEditar, resolver, onOpen, onDragStart 
           {prog.feitas}/{prog.total}
         </span>
       )}
+      {(() => {
+        const links = ATIVIDADES.PROJETO.map((nome) => ({ nome, link: linkSeguro(obra.atividades[chaveAtividade('PROJETO', nome)]?.link) })).filter((x) => x.link)
+        return links.length > 0 ? (
+          <div className="obra-drive" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            <span className="obra-drive-rotulo"><FolderOpen aria-hidden="true" />Projetos</span>
+            {links.map(({ nome, link }) => (
+              <a key={nome} href={link} target="_blank" rel="noopener noreferrer" draggable={false} title={`Abrir projeto ${nome} no Drive`}>{nome.slice(0, 4)}</a>
+            ))}
+          </div>
+        ) : null
+      })()}
       <div className="obra-rodape">
         <span className="obra-empreiteiro"><HardHat aria-hidden="true" />{obra.empreiteiro || 'Sem empreiteiro'}</span>
         <span className="obra-tempo" title="Tempo nesta etapa">{tempoNaEtapa(obra.desde, agora)}</span>
@@ -699,6 +710,46 @@ export function ObrasBoard() {
                 ))}
               </div>
             </fieldset>
+            {(podeEditar || ATIVIDADES.PROJETO.some((n) => linkSeguro(draft.atividades[chaveAtividade('PROJETO', n)]?.link))) && (
+              <div className="field">
+                <label>Projetos no Drive</label>
+                <div className="drive-bloco">
+                  {ATIVIDADES.PROJETO.map((nome) => {
+                    const k = chaveAtividade('PROJETO', nome)
+                    const a = draft.atividades[k]
+                    const link = linkSeguro(a?.link)
+                    const atualizarLink = (valor: string) =>
+                      setDraft((d) => {
+                        if (!d) return d
+                        const atual = d.atividades[k]
+                        const atividades = { ...d.atividades }
+                        if (!atual?.feita && !valor) delete atividades[k]
+                        else atividades[k] = { feita: atual?.feita ?? false, ...(valor ? { link: valor } : {}), ...(atual?.em ? { em: atual.em } : {}) }
+                        return { ...d, atividades }
+                      })
+                    return (
+                      <div className="drive-linha" key={k}>
+                        <span className="drive-nome">{nome}</span>
+                        {podeEditar ? (
+                          <input
+                            className="drive-input"
+                            type="url"
+                            inputMode="url"
+                            aria-label={`Link do Google Drive: ${nome}`}
+                            placeholder="Cole aqui o link do Google Drive"
+                            value={a?.link ?? ''}
+                            onChange={(e) => atualizarLink(e.target.value)}
+                            onBlur={(e) => { const l = linkSeguro(e.target.value); if (l !== (a?.link ?? '')) atualizarLink(l) }}
+                          />
+                        ) : !link ? <span className="ativ-sem-link">Sem link</span> : null}
+                        {link && <a className="ativ-abrir" href={link} target="_blank" rel="noopener noreferrer"><ExternalLink aria-hidden="true" /> Abrir / baixar</a>}
+                      </div>
+                    )
+                  })}
+                </div>
+                <p className="galeria-dica">Os projetos ficam disponíveis em todas as etapas da obra.</p>
+              </div>
+            )}
             <div className="field">
               <label>Atividades da etapa: {draft.etapa}</label>
               <div className="atividades">
@@ -706,7 +757,6 @@ export function ObrasBoard() {
                   if (etapa !== draft.etapa) return null
                   const lista = ATIVIDADES[etapa]
                   const { feitas, total } = progressoEtapa(draft.atividades, etapa)
-                  const comLink = LINK_ETAPAS.includes(etapa)
                   return (
                     <details key={etapa} className="ativ-etapa" open>
                       <summary onClick={(e) => e.preventDefault()}>
@@ -748,21 +798,6 @@ export function ObrasBoard() {
                                   const rest = meta - diasNaEtapa(desde, agora)
                                   return <span className={`ativ-prazo ${rest < 0 ? 'late' : rest <= 5 ? 'warn' : 'ok'}`}>Prazo: {meta} dias · {textoPrazo(rest)}</span>
                                 })()}
-                                {comLink && (podeEditar ? (
-                                  <input
-                                    className="ativ-link"
-                                    type="url"
-                                    inputMode="url"
-                                    aria-label={`Link do Google Drive: ${nome}`}
-                                    placeholder="Cole aqui o link do Google Drive"
-                                    value={a?.link ?? ''}
-                                    onChange={(e) => atualizar({ link: e.target.value })}
-                                    onBlur={(e) => { const l = linkSeguro(e.target.value); if (l !== (a?.link ?? '')) atualizar({ link: l }) }}
-                                  />
-                                ) : a?.link ? null : <span className="ativ-sem-link">Sem link</span>)}
-                                {comLink && a?.link && linkSeguro(a.link) && (
-                                  <a className="ativ-abrir" href={linkSeguro(a.link)} target="_blank" rel="noopener noreferrer"><ExternalLink aria-hidden="true" /> Abrir / baixar projeto</a>
-                                )}
                               </li>
                             )
                           })}
