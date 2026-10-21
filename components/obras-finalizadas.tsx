@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ArrowLeft, ExternalLink, RotateCcw, Search, X } from 'lucide-react'
+import { ArrowLeft, ExternalLink, HardHat, RotateCcw, Search, X } from 'lucide-react'
 
 type Foto = { id: string; url: string; thumb: string; data: string; legenda: string }
 type Atividade = { feita: boolean; link?: string; em?: string }
@@ -22,7 +22,7 @@ type ObraFinal = {
   previsao: string
   endereco: string
   detalhes: string
-  empreiteiro: string
+  empreiteiros: Record<string, string>
   fotos: Foto[]
   atividades: Record<string, Atividade>
   historico: { etapa: string; em: string }[]
@@ -71,7 +71,7 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
   const lista = useMemo(() => {
     const q = busca.trim().toLowerCase()
     return obras
-      .filter((o) => !q || `${o.nomeObra} ${o.cliente} ${o.endereco} ${o.condominio} ${o.empreiteiro}`.toLowerCase().includes(q))
+      .filter((o) => !q || `${o.nomeObra} ${o.cliente} ${o.endereco} ${o.condominio} ${Object.values(o.empreiteiros).join(' ')}`.toLowerCase().includes(q))
       .sort((a, b) => b.finalizadaEm.localeCompare(a.finalizadaEm))
   }, [obras, busca])
 
@@ -104,7 +104,7 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
                     <button type="button" className="fin-item" onClick={() => setAbertaId(o.id)}>
                       <strong>{o.nomeObra.trim() || o.cliente}</strong>
                       <span>{o.endereco}</span>
-                      <small>Empreiteiro: {o.empreiteiro || '—'} · Finalizada em {data(o.finalizadaEm)} · Duração: {textoDias(dias(o.historico[0]?.em ?? o.finalizadaEm, o.finalizadaEm))}</small>
+                      <small>Empreiteiros: {[...new Set(Object.values(o.empreiteiros))].join(', ') || '—'} · Finalizada em {data(o.finalizadaEm)} · Duração: {textoDias(dias(o.historico[0]?.em ?? o.finalizadaEm, o.finalizadaEm))}</small>
                     </button>
                   </li>
                 ))}
@@ -118,7 +118,7 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
               <button type="button" className="icon-btn" aria-label="Fechar" onClick={onFechar}><X /></button>
             </div>
             <h2 className="fin-titulo">{aberta.nomeObra.trim() || aberta.cliente}</h2>
-            <p className="fin-sub">{aberta.endereco} · Empreiteiro: {aberta.empreiteiro || '—'}</p>
+            <p className="fin-sub">{aberta.endereco}</p>
             {(() => {
               const itens: [string, string][] = [
                 ['Cliente', aberta.cliente], ['Contato', [aberta.contato1, aberta.contato2].filter(Boolean).join(' | ')],
@@ -145,6 +145,7 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
                     <div className="fin-etapa-topo">
                       <span className="column-step">{i + 1}</span>
                       <strong>{etapa}</strong>
+                      {aberta.empreiteiros[etapa] && <span className="fin-emp"><HardHat aria-hidden="true" />{aberta.empreiteiros[etapa]}</span>}
                       {lista.length > 0 && <span className={`ativ-cont ${feitas === lista.length ? 'completo' : ''}`}>{feitas}/{lista.length}</span>}
                     </div>
                     {entrou ? (

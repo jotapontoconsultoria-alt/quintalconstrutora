@@ -99,12 +99,13 @@ type Obra = {
   cliente: string
   contato1: string
   contato2: string
-  /** Datas (AAAA-MM-DD) de início da obra e previsão de término. */
+  /** Mês/ano (AAAA-MM) de início da obra e previsão de término. */
   inicio: string
   previsao: string
   /** Texto livre das versões anteriores (não aparece mais na tela, fica guardado). */
   detalhes: string
-  empreiteiro: string
+  /** Empreiteiro responsável de cada etapa (nome da etapa → nome). */
+  empreiteiros: Record<string, string>
   etapa: Stage
   /** ISO: quando a obra entrou na etapa atual. */
   desde: string
@@ -123,7 +124,7 @@ type Draft = Omit<Obra, 'id' | 'desde' | 'historico' | 'finalizadaEm'> & { id?: 
 const PREFIXO_FOTOS = '/api/fotos/'
 
 /** Título da obra no card e nas listas. */
-const dataBR = (d: string) => (d ? d.split('-').reverse().join('/') : '')
+const dataBR = (d: string) => (d ? d.slice(0, 7).split('-').reverse().join('/') : '')
 const tituloDe = (o: { nomeObra: string; cliente: string }) => o.nomeObra.trim() || o.cliente
 
 function capaDe(obra: Pick<Obra, 'fotos' | 'capa'>): Foto | undefined {
@@ -182,7 +183,7 @@ const DEFAULT_SLA: Sla = {
   'ACABAMENTOS': 30,
 }
 
-const emptyDraft: Draft = { nomeObra: '', endereco: '', condominio: '', lote: '', area: '', pavimentos: '', lazer: false, piscina: false, spa: false, cliente: '', contato1: '', contato2: '', inicio: '', previsao: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO', fotos: [], atividades: {} }
+const emptyDraft: Draft = { nomeObra: '', endereco: '', condominio: '', lote: '', area: '', pavimentos: '', lazer: false, piscina: false, spa: false, cliente: '', contato1: '', contato2: '', inicio: '', previsao: '', detalhes: '', empreiteiros: {}, etapa: 'PROJETO', fotos: [], atividades: {} }
 
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
@@ -290,10 +291,17 @@ function sanitize(raw: unknown): Obra[] {
       cliente: String(o.cliente ?? ''),
       contato1: String(o.contato1 ?? ''),
       contato2: String(o.contato2 ?? ''),
-      inicio: /^\d{4}-\d{2}-\d{2}$/.test(String(o.inicio ?? '')) ? String(o.inicio) : '',
-      previsao: /^\d{4}-\d{2}-\d{2}$/.test(String(o.previsao ?? '')) ? String(o.previsao) : '',
+      inicio: /^\d{4}-\d{2}/.test(String(o.inicio ?? '')) ? String(o.inicio).slice(0, 7) : '',
+      previsao: /^\d{4}-\d{2}/.test(String(o.previsao ?? '')) ? String(o.previsao).slice(0, 7) : '',
       detalhes: String(o.detalhes ?? ''),
-      empreiteiro: String(o.empreiteiro ?? ''),
+      empreiteiros: (() => {
+        const r: Record<string, string> = {}
+        const bruto = o.empreiteiros && typeof o.empreiteiros === 'object' ? (o.empreiteiros as Record<string, unknown>) : {}
+        for (const e of STAGES) if (typeof bruto[e] === 'string' && bruto[e].trim()) r[e] = bruto[e].trim()
+        // obras antigas tinham um único empreiteiro: vale para a etapa em que ela está
+        if (Object.keys(r).length === 0 && typeof o.empreiteiro === 'string' && o.empreiteiro.trim() && (STAGES as readonly string[]).includes(String(o.etapa))) r[String(o.etapa)] = o.empreiteiro.trim()
+        return r
+      })(),
       etapa: isStage(o.etapa) ? o.etapa : 'PROJETO',
       desde: typeof o.desde === 'string' ? o.desde : new Date().toISOString(),
       fotos: sanitizeFotos(o.fotos),
@@ -384,7 +392,7 @@ function ObraCard({ obra, sla, agora, podeEditar, resolver, onOpen, onDragStart 
         ) : null
       })()}
       <div className="obra-rodape">
-        <span className="obra-empreiteiro"><HardHat aria-hidden="true" />{obra.empreiteiro || 'Sem empreiteiro'}</span>
+        <span className="obra-empreiteiro"><HardHat aria-hidden="true" />{obra.empreiteiros[obra.etapa] || 'Sem empreiteiro'}</span>
         <span className="obra-tempo" title="Tempo nesta etapa">{tempoNaEtapa(obra.desde, agora)}</span>
       </div>
     </div>
@@ -491,11 +499,11 @@ export function ObrasBoard() {
       .catch((e) => { if (e?.status === 401) setUsuario(null); else setSyncError(true) })
   }, [loaded, obras, sla, slaAtividades, podeEditar])
 
-  const empreiteiros = useMemo(() => Array.from(new Set(obras.map((o) => o.empreiteiro.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [obras])
+  const empreiteiros = useMemo(() => Array.from(new Set(obras.flatMap((o) => Object.values(o.empreiteiros)))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [obras])
 
   const filtradas = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return obras.filter((o) => !o.finalizadaEm && (!q || `${o.nomeObra} ${o.cliente} ${o.endereco} ${o.condominio} ${o.lote} ${o.detalhes}`.toLowerCase().includes(q)) && (filtroEmpreiteiro === 'Todos' || o.empreiteiro === filtroEmpreiteiro))
+    return obras.filter((o) => !o.finalizadaEm && (!q || `${o.nomeObra} ${o.cliente} ${o.endereco} ${o.condominio} ${o.lote} ${o.detalhes}`.toLowerCase().includes(q)) && (filtroEmpreiteiro === 'Todos' || Object.values(o.empreiteiros).includes(filtroEmpreiteiro)))
   }, [obras, search, filtroEmpreiteiro])
 
   const moverPara = (obra: Obra, etapa: Stage) => {
@@ -518,7 +526,7 @@ export function ObrasBoard() {
 
   const abrirEdicao = (o: Obra) => {
     sessaoFotos.current = { novas: [], removidas: [] }
-    setDraft({ id: o.id, nomeObra: o.nomeObra, endereco: o.endereco, condominio: o.condominio, lote: o.lote, area: o.area, pavimentos: o.pavimentos, lazer: o.lazer, piscina: o.piscina, spa: o.spa, cliente: o.cliente, contato1: o.contato1, contato2: o.contato2, inicio: o.inicio, previsao: o.previsao, detalhes: o.detalhes, empreiteiro: o.empreiteiro, etapa: o.etapa, fotos: o.fotos, capa: o.capa, atividades: o.atividades })
+    setDraft({ id: o.id, nomeObra: o.nomeObra, endereco: o.endereco, condominio: o.condominio, lote: o.lote, area: o.area, pavimentos: o.pavimentos, lazer: o.lazer, piscina: o.piscina, spa: o.spa, cliente: o.cliente, contato1: o.contato1, contato2: o.contato2, inicio: o.inicio, previsao: o.previsao, detalhes: o.detalhes, empreiteiros: o.empreiteiros, etapa: o.etapa, fotos: o.fotos, capa: o.capa, atividades: o.atividades })
   }
 
   /** Fecha sem salvar: descarta o que foi enviado nesta sessão. */
@@ -572,7 +580,7 @@ export function ObrasBoard() {
   const salvar = (e?: React.FormEvent, finalizar = false) => {
     e?.preventDefault()
     if (!draft || !podeEditar) return
-    if (finalizar && (!draft.nomeObra.trim() || !draft.endereco.trim() || !draft.cliente.trim() || !draft.empreiteiro.trim())) return showToast('Preencha nome da obra, endereço, cliente e empreiteiro antes de finalizar')
+    if (finalizar && (!draft.nomeObra.trim() || !draft.endereco.trim() || !draft.cliente.trim())) return showToast('Preencha nome da obra, endereço e cliente antes de finalizar')
     const { novoId, id: _id, ...campos } = draft
     const limpo = {
       ...campos,
@@ -590,7 +598,7 @@ export function ObrasBoard() {
       inicio: draft.inicio,
       previsao: draft.previsao,
       detalhes: draft.detalhes,
-      empreiteiro: draft.empreiteiro.trim(),
+      empreiteiros: Object.fromEntries(Object.entries(draft.empreiteiros).map(([k, v]) => [k, v.trim()] as const).filter(([, v]) => v)),
     }
     if (draft.id) {
       const agoraIso = new Date().toISOString()
@@ -751,13 +759,18 @@ export function ObrasBoard() {
               <div className="field"><label htmlFor="contato2">Contato 2</label><input id="contato2" type="tel" inputMode="tel" value={draft.contato2} onChange={(e) => set('contato2', e.target.value)} placeholder="(00) 00000-0000" /></div>
             </div>
             <div className="cfg-duas">
-              <div className="field"><label htmlFor="inicio">Início da obra</label><input id="inicio" type="date" value={draft.inicio} onChange={(e) => set('inicio', e.target.value)} /></div>
-              <div className="field"><label htmlFor="previsao">Previsão de término</label><input id="previsao" type="date" min={draft.inicio || undefined} value={draft.previsao} onChange={(e) => set('previsao', e.target.value)} /></div>
+              <div className="field"><label htmlFor="inicio">Início da obra</label><input id="inicio" type="month" value={draft.inicio} onChange={(e) => set('inicio', e.target.value)} /></div>
+              <div className="field"><label htmlFor="previsao">Previsão de término</label><input id="previsao" type="month" min={draft.inicio || undefined} value={draft.previsao} onChange={(e) => set('previsao', e.target.value)} /></div>
             </div>
             <div className="field">
-              <label htmlFor="empreiteiro">Empreiteiro responsável</label>
-              <input id="empreiteiro" required list="empreiteiros" value={draft.empreiteiro} onChange={(e) => set('empreiteiro', e.target.value)} placeholder="Nome do empreiteiro" />
+              <label htmlFor="empreiteiro">Empreiteiro responsável — etapa {draft.etapa}</label>
+              <input id="empreiteiro" list="empreiteiros" value={draft.empreiteiros[draft.etapa] ?? ''} onChange={(e) => setDraft((d) => (d ? { ...d, empreiteiros: { ...d.empreiteiros, [d.etapa]: e.target.value } } : d))} placeholder="Nome do empreiteiro desta etapa" />
               <datalist id="empreiteiros">{empreiteiros.map((n) => <option key={n} value={n} />)}</datalist>
+              {STAGES.some((e) => e !== draft.etapa && draft.empreiteiros[e]?.trim()) && (
+                <ul className="emp-outras">
+                  {STAGES.filter((e) => e !== draft.etapa && draft.empreiteiros[e]?.trim()).map((e) => <li key={e}><span>{e}</span>{draft.empreiteiros[e]}</li>)}
+                </ul>
+              )}
             </div>
             </fieldset>
             {(podeEditar || draft.fotos.length > 0) && <div className="field">
