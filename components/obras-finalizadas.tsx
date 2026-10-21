@@ -153,6 +153,9 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
                     ) : (
                       <p className="fin-datas">Sem data de entrada registrada nesta etapa.</p>
                     )}
+                    {etapa === 'PROJETO' && aberta.atividades[chave(etapa, 'IMAGENS 3D')]?.link && (
+                      <p className="fin-datas"><a className="ativ-abrir" href={aberta.atividades[chave(etapa, 'IMAGENS 3D')]?.link} target="_blank" rel="noopener noreferrer"><ExternalLink aria-hidden="true" /> Abrir imagens 3D</a></p>
+                    )}
                     {lista.length > 0 && (
                       <ul className="fin-ativ">
                         {lista.map((nome) => {

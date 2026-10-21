@@ -29,6 +29,9 @@ const ATIVIDADES: Record<Stage, readonly string[]> = {
   'ACABAMENTOS': [],
 }
 const LINK_ETAPAS: readonly Stage[] = ['PROJETO']
+/** Pastas do Drive da etapa PROJETO: as atividades do projeto + as imagens 3D (que só têm link, sem caixa de marcação). */
+const IMAGENS_3D = 'IMAGENS 3D'
+const PASTAS_DRIVE: readonly string[] = [...ATIVIDADES.PROJETO, IMAGENS_3D]
 
 /** Estado de cada atividade, guardado por obra com a chave `etapa|atividade`. */
 type Atividade = { feita: boolean; link?: string; /** ISO: quando foi marcada como concluída. */ em?: string }
@@ -52,7 +55,7 @@ function sanitizeAtividades(raw: unknown): Atividades {
   const out: Atividades = {}
   if (!raw || typeof raw !== 'object') return out
   for (const etapa of STAGES) {
-    for (const nome of ATIVIDADES[etapa]) {
+    for (const nome of etapa === 'PROJETO' ? PASTAS_DRIVE : ATIVIDADES[etapa]) {
       const k = chaveAtividade(etapa, nome)
       const a = (raw as Record<string, unknown>)[k]
       if (!a || typeof a !== 'object') continue
@@ -381,12 +384,12 @@ function ObraCard({ obra, sla, agora, podeEditar, resolver, onOpen, onDragStart 
         </span>
       )}
       {(() => {
-        const links = ATIVIDADES.PROJETO.map((nome) => ({ nome, link: linkSeguro(obra.atividades[chaveAtividade('PROJETO', nome)]?.link) })).filter((x) => x.link)
+        const links = PASTAS_DRIVE.map((nome) => ({ nome, link: linkSeguro(obra.atividades[chaveAtividade('PROJETO', nome)]?.link) })).filter((x) => x.link)
         return links.length > 0 ? (
           <div className="obra-drive" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
             <span className="obra-drive-rotulo"><FolderOpen aria-hidden="true" />Projetos</span>
             {links.map(({ nome, link }) => (
-              <a key={nome} href={link} target="_blank" rel="noopener noreferrer" draggable={false} title={`Abrir projeto ${nome} no Drive`}>{nome.slice(0, 4)}</a>
+              <a key={nome} href={link} target="_blank" rel="noopener noreferrer" draggable={false} title={`Abrir ${nome} no Drive`}>{nome === IMAGENS_3D ? '3D' : nome.slice(0, 4)}</a>
             ))}
           </div>
         ) : null
@@ -806,11 +809,11 @@ export function ObrasBoard() {
               </div>
             </fieldset>
             <div className="ordem-blocos">
-            {(podeEditar || ATIVIDADES.PROJETO.some((n) => linkSeguro(draft.atividades[chaveAtividade('PROJETO', n)]?.link))) && (
+            {(podeEditar || PASTAS_DRIVE.some((n) => linkSeguro(draft.atividades[chaveAtividade('PROJETO', n)]?.link))) && (
               <div className="field" style={{ order: draft.etapa === 'PROJETO' ? 1 : 2 }}>
                 <label>Projetos no Drive</label>
                 <div className="drive-bloco">
-                  {ATIVIDADES.PROJETO.map((nome) => {
+                  {PASTAS_DRIVE.map((nome) => {
                     const k = chaveAtividade('PROJETO', nome)
                     const a = draft.atividades[k]
                     const link = linkSeguro(a?.link)
