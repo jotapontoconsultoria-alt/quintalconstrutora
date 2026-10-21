@@ -711,7 +711,10 @@ export function ObrasBoard() {
           <form className="modal" onSubmit={salvar} onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h2>{!podeEditar ? 'Detalhes da obra' : draft.id ? 'Editar obra' : 'Nova obra'}</h2>
-              <button type="button" className="icon-btn" aria-label="Fechar" onClick={fecharDraft}><X /></button>
+              <div className="modal-head-acoes">
+                {podeEditar && <button type="submit" className="btn-primary btn-salvar-topo" disabled={enviando}>Salvar</button>}
+                <button type="button" className="icon-btn" aria-label="Fechar" onClick={fecharDraft}><X /></button>
+              </div>
             </div>
             <fieldset className="form-lock" disabled={!podeEditar}>
             <div className="field"><label htmlFor="nomeObra">Nome da obra</label><input id="nomeObra" required value={draft.nomeObra} onChange={(e) => set('nomeObra', e.target.value)} placeholder="Ex.: Residência Silva" autoFocus /></div>

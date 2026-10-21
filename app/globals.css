@@ -312,3 +312,7 @@ h1 { margin: 0; font-family: 'Montserrat Variable', 'Montserrat', system-ui, -ap
 .ordem-blocos { display: flex; flex-direction: column; }
 .obra-cliente-nome { display: flex; align-items: center; gap: 6px; color: #3b403c; font-size: 12.5px; font-weight: 600; }
 .obra-cliente-nome svg { width: 13px; height: 13px; flex: none; color: var(--muted); }
+
+.modal-head-acoes { display: flex; align-items: center; gap: 10px; }
+.btn-salvar-topo { height: 36px; padding: 0 18px; }
+.modal > .modal-head { position: sticky; top: -24px; z-index: 5; margin: -24px -24px 18px; padding: 18px 24px 12px; background: #fff; border-bottom: 1px solid var(--line); border-radius: 16px 16px 0 0; }
