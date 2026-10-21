@@ -18,6 +18,8 @@ type ObraFinal = {
   spa: boolean
   contato1: string
   contato2: string
+  inicio: string
+  previsao: string
   endereco: string
   detalhes: string
   empreiteiro: string
@@ -120,7 +122,7 @@ export function ObrasFinalizadas({ obras, etapas, atividades, chave, comLink, re
             {(() => {
               const itens: [string, string][] = [
                 ['Cliente', aberta.cliente], ['Contato', [aberta.contato1, aberta.contato2].filter(Boolean).join(' | ')],
-                ['Condomínio', aberta.condominio], ['Lote', aberta.lote], ['Área construída', aberta.area ? `${aberta.area} m²` : ''],
+                ['Início', aberta.inicio.split('-').reverse().join('/')], ['Previsão de término', aberta.previsao.split('-').reverse().join('/')], ['Condomínio', aberta.condominio], ['Lote', aberta.lote], ['Área construída', aberta.area ? `${aberta.area} m²` : ''],
                 ['Pavimentos', aberta.pavimentos], ['Lazer', aberta.lazer ? (['piscina', 'spa'].filter((k) => (k === 'piscina' ? aberta.piscina : aberta.spa)).join(' e ') || 'Sim') : 'Não'],
               ]
               return <p className="fin-detalhes">{itens.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' · ')}</p>

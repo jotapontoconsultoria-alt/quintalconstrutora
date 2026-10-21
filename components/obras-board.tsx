@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, Camera, FolderOpen, User, CheckSquare, Flag, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
+import { Archive, CalendarDays, Camera, FolderOpen, User, CheckSquare, Flag, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Login } from '@/components/login'
 import { Configuracoes } from '@/components/configuracoes'
@@ -99,6 +99,9 @@ type Obra = {
   cliente: string
   contato1: string
   contato2: string
+  /** Datas (AAAA-MM-DD) de início da obra e previsão de término. */
+  inicio: string
+  previsao: string
   /** Texto livre das versões anteriores (não aparece mais na tela, fica guardado). */
   detalhes: string
   empreiteiro: string
@@ -120,6 +123,7 @@ type Draft = Omit<Obra, 'id' | 'desde' | 'historico' | 'finalizadaEm'> & { id?: 
 const PREFIXO_FOTOS = '/api/fotos/'
 
 /** Título da obra no card e nas listas. */
+const dataBR = (d: string) => (d ? d.split('-').reverse().join('/') : '')
 const tituloDe = (o: { nomeObra: string; cliente: string }) => o.nomeObra.trim() || o.cliente
 
 function capaDe(obra: Pick<Obra, 'fotos' | 'capa'>): Foto | undefined {
@@ -178,7 +182,7 @@ const DEFAULT_SLA: Sla = {
   'ACABAMENTOS': 30,
 }
 
-const emptyDraft: Draft = { nomeObra: '', endereco: '', condominio: '', lote: '', area: '', pavimentos: '', lazer: false, piscina: false, spa: false, cliente: '', contato1: '', contato2: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO', fotos: [], atividades: {} }
+const emptyDraft: Draft = { nomeObra: '', endereco: '', condominio: '', lote: '', area: '', pavimentos: '', lazer: false, piscina: false, spa: false, cliente: '', contato1: '', contato2: '', inicio: '', previsao: '', detalhes: '', empreiteiro: '', etapa: 'PROJETO', fotos: [], atividades: {} }
 
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
@@ -286,6 +290,8 @@ function sanitize(raw: unknown): Obra[] {
       cliente: String(o.cliente ?? ''),
       contato1: String(o.contato1 ?? ''),
       contato2: String(o.contato2 ?? ''),
+      inicio: /^\d{4}-\d{2}-\d{2}$/.test(String(o.inicio ?? '')) ? String(o.inicio) : '',
+      previsao: /^\d{4}-\d{2}-\d{2}$/.test(String(o.previsao ?? '')) ? String(o.previsao) : '',
       detalhes: String(o.detalhes ?? ''),
       empreiteiro: String(o.empreiteiro ?? ''),
       etapa: isStage(o.etapa) ? o.etapa : 'PROJETO',
@@ -349,6 +355,7 @@ function ObraCard({ obra, sla, agora, podeEditar, resolver, onOpen, onDragStart 
       <strong className="obra-cliente">{tituloDe(obra)}</strong>
       {obra.nomeObra.trim() && obra.cliente && <span className="obra-cliente-nome"><User aria-hidden="true" />{obra.cliente}</span>}
       <span className="obra-endereco"><MapPin aria-hidden="true" />{obra.endereco}</span>
+      {(obra.inicio || obra.previsao) && <p className="obra-datas"><CalendarDays aria-hidden="true" />{obra.inicio ? dataBR(obra.inicio) : '—'} → {obra.previsao ? dataBR(obra.previsao) : '—'}</p>}
       {(() => {
         const partes = [obra.condominio && `Cond. ${obra.condominio}`, obra.lote && `Lote ${obra.lote}`, obra.area && `${obra.area} m²`, obra.pavimentos && `${obra.pavimentos} pav.`, obra.lazer && (obra.piscina || obra.spa ? `Lazer: ${[obra.piscina && 'piscina', obra.spa && 'spa'].filter(Boolean).join(' e ')}` : 'Lazer')].filter(Boolean)
         return partes.length > 0 ? <p className="obra-detalhes">{partes.join(' · ')}</p> : null
@@ -511,7 +518,7 @@ export function ObrasBoard() {
 
   const abrirEdicao = (o: Obra) => {
     sessaoFotos.current = { novas: [], removidas: [] }
-    setDraft({ id: o.id, nomeObra: o.nomeObra, endereco: o.endereco, condominio: o.condominio, lote: o.lote, area: o.area, pavimentos: o.pavimentos, lazer: o.lazer, piscina: o.piscina, spa: o.spa, cliente: o.cliente, contato1: o.contato1, contato2: o.contato2, detalhes: o.detalhes, empreiteiro: o.empreiteiro, etapa: o.etapa, fotos: o.fotos, capa: o.capa, atividades: o.atividades })
+    setDraft({ id: o.id, nomeObra: o.nomeObra, endereco: o.endereco, condominio: o.condominio, lote: o.lote, area: o.area, pavimentos: o.pavimentos, lazer: o.lazer, piscina: o.piscina, spa: o.spa, cliente: o.cliente, contato1: o.contato1, contato2: o.contato2, inicio: o.inicio, previsao: o.previsao, detalhes: o.detalhes, empreiteiro: o.empreiteiro, etapa: o.etapa, fotos: o.fotos, capa: o.capa, atividades: o.atividades })
   }
 
   /** Fecha sem salvar: descarta o que foi enviado nesta sessão. */
@@ -580,6 +587,8 @@ export function ObrasBoard() {
       cliente: draft.cliente.trim(),
       contato1: draft.contato1.trim(),
       contato2: draft.contato2.trim(),
+      inicio: draft.inicio,
+      previsao: draft.previsao,
       detalhes: draft.detalhes,
       empreiteiro: draft.empreiteiro.trim(),
     }
@@ -740,6 +749,10 @@ export function ObrasBoard() {
             <div className="cfg-duas">
               <div className="field"><label htmlFor="contato1">Contato 1</label><input id="contato1" type="tel" inputMode="tel" value={draft.contato1} onChange={(e) => set('contato1', e.target.value)} placeholder="(00) 00000-0000" /></div>
               <div className="field"><label htmlFor="contato2">Contato 2</label><input id="contato2" type="tel" inputMode="tel" value={draft.contato2} onChange={(e) => set('contato2', e.target.value)} placeholder="(00) 00000-0000" /></div>
+            </div>
+            <div className="cfg-duas">
+              <div className="field"><label htmlFor="inicio">Início da obra</label><input id="inicio" type="date" value={draft.inicio} onChange={(e) => set('inicio', e.target.value)} /></div>
+              <div className="field"><label htmlFor="previsao">Previsão de término</label><input id="previsao" type="date" min={draft.inicio || undefined} value={draft.previsao} onChange={(e) => set('previsao', e.target.value)} /></div>
             </div>
             <div className="field">
               <label htmlFor="empreiteiro">Empreiteiro responsável</label>
