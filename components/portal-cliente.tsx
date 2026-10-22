@@ -343,7 +343,7 @@ function Grafico({ f }: { f: FinResumo }) {
   if (Math.abs(f.totais.orcado - f.totais.previsto) / max < 0.05) refs.sort((a, b) => a[0] - b[0])
   return (
     <div className="pc-tw" onMouseLeave={() => setTip(null)}>
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label="Gasto realizado por mês e acumulado" className="pc-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: W, height: 'auto' }} role="img" aria-label="Gasto realizado por mês e acumulado" className="pc-chart">
         {ticks.map((v) => <g key={v}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className="grade" /><text x={L - 8} y={y(v) + 4} textAnchor="end">{brl(v)}</text></g>)}
         {refs.map(([v, n], i) => <g key={n}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className="ref" /><text className="t2" x={W - R} y={y(v) + (i ? -5 : 13)} textAnchor="end">{n} {brl(v)}</text></g>)}
         {f.meses.map((m, i) => {
