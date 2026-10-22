@@ -4,7 +4,7 @@
 .pc-top{background:#fff;border-bottom:3px solid var(--pc-leaf);position:sticky;top:0;z-index:5}
 .pc-bar{display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap;padding-top:10px}
 .pc-brand{display:flex;flex-direction:column;gap:2px}
-.pc-brand img{height:48px;width:auto;display:block}
+.pc-brand img{height:48px;width:auto;max-width:none;align-self:flex-start;object-fit:contain;display:block}
 .pc-credit{font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--pc-muted)}
 .pc-who{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .pc-chip{border:1px solid var(--pc-line);border-radius:999px;padding:4px 11px;font-size:12px;background:#fff;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

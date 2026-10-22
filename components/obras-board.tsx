@@ -698,6 +698,7 @@ export function ObrasBoard() {
             <div className="modal-head">
               <h2>{!podeEditar ? 'Detalhes da obra' : draft.id ? 'Editar obra' : 'Nova obra'}</h2>
               <div className="modal-head-acoes">
+                {draft.id && <button type="button" className="btn-ghost" onClick={() => setFinObra({ id: draft.id as string, titulo: draft.nomeObra.trim() || draft.cliente || 'Obra' })}><Wallet aria-hidden="true" /> Financeiro</button>}
                 {podeEditar && <button type="submit" className="btn-primary btn-salvar-topo" disabled={enviando}>Salvar</button>}
                 <button type="button" className="icon-btn" aria-label="Fechar" onClick={fecharDraft}><X /></button>
               </div>
@@ -875,7 +876,6 @@ export function ObrasBoard() {
             </div>
             </div>
             <div className="modal-actions">
-              {draft.id && <button type="button" className="btn-ghost" onClick={() => setFinObra({ id: draft.id as string, titulo: draft.nomeObra.trim() || draft.cliente || 'Obra' })}><Wallet aria-hidden="true" /> Financeiro</button>}
               {podeEditar && draft.id && <button type="button" className="btn-danger" onClick={excluir}><Trash2 aria-hidden="true" /> Excluir</button>}
               <span className="spacer" />
               {podeEditar && draft.id && draft.etapa === 'ACABAMENTOS' && obras.find((o) => o.id === draft.id)?.etapa === 'ACABAMENTOS' && (
