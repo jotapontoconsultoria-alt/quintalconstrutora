@@ -5,7 +5,14 @@ import { db } from './db'
 
 const scrypt = promisify(scryptCb) as (senha: string, salt: Buffer, tam: number) => Promise<Buffer>
 
-export type Papel = 'admin' | 'editor' | 'leitor'
+export type Papel = 'admin' | 'editor' | 'leitor' | 'cliente'
+/** Perfis da equipe (veem o quadro). O cliente só vê o próprio portal. */
+export const EQUIPE: Papel[] = ['admin', 'editor', 'leitor']
+
+/** Obras que o cliente pode ver. */
+export function obrasDoCliente(usuarioId: string): string[] {
+  return (db().prepare('select obra_id from usuario_obra where usuario_id = ? order by obra_id').all(usuarioId) as { obra_id: string }[]).map((r) => r.obra_id)
+}
 export type Usuario = { id: string; email: string; papel: Papel }
 
 export const COOKIE = 'quintal_sessao'

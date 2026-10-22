@@ -323,3 +323,5 @@ h1 { margin: 0; font-family: 'Montserrat Variable', 'Montserrat', system-ui, -ap
 .emp-outras li span { font-size: 10.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .fin-emp { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-size: 12px; font-weight: 700; color: var(--green-strong); }
 .fin-emp svg { width: 13px; height: 13px; }
+
+.previa-portal { position: fixed; inset: 0; z-index: 50; overflow: auto; background: var(--sand); }

@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 
 /** Cada pessoa troca a própria senha informando a atual. */
 export async function POST(req: Request) {
-  const u = await exigir(req)
+  const u = await exigir(req, ['admin', 'editor', 'leitor', 'cliente'])
   if (ehResposta(u)) return u
   let corpo: { atual?: unknown; nova?: unknown }
   try { corpo = await req.json() } catch { return erro('Pedido inválido.') }

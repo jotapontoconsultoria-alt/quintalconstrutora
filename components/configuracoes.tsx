@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { Copy, KeyRound, RefreshCw, Trash2, UserPlus, X } from 'lucide-react'
 import { api } from '@/lib/api'
 
-export type PapelUsuario = 'admin' | 'editor' | 'leitor'
+export type PapelUsuario = 'admin' | 'editor' | 'leitor' | 'cliente'
 
-type Usuario = { id: string; email: string; papel: PapelUsuario; criadoEm: string; ultimoAcesso: string | null }
+type Usuario = { id: string; email: string; papel: PapelUsuario; criadoEm: string; ultimoAcesso: string | null; obras: string[] }
+type ObraOpcao = { id: string; titulo: string }
 
-const ROTULO: Record<PapelUsuario, string> = { admin: 'Administrador', editor: 'Editor', leitor: 'Somente consulta' }
+const ROTULO: Record<PapelUsuario, string> = { admin: 'Administrador', editor: 'Editor', leitor: 'Somente consulta', cliente: 'Cliente (portal da obra)' }
 
 /** Senha provisória legível (sem caracteres que se confundem como 0/O ou 1/l). */
 function gerarSenha() {
@@ -62,6 +63,8 @@ export function Configuracoes({ papel, meuId, meuEmail, onFechar }: Props) {
 
   // ----- Usuários (administrador) -----
   const [usuarios, setUsuarios] = useState<Usuario[] | null>(null)
+  const [obrasLista, setObrasLista] = useState<ObraOpcao[]>([])
+  const [novaObra, setNovaObra] = useState('')
   const [erro, setErro] = useState('')
   const [ocupado, setOcupado] = useState(false)
   const [novoEmail, setNovoEmail] = useState('')
@@ -72,7 +75,7 @@ export function Configuracoes({ papel, meuId, meuEmail, onFechar }: Props) {
 
   const chamar = useCallback(async (acao: string, dados: Record<string, unknown> = {}) => {
     const { id, ...resto } = dados as { id?: string }
-    if (acao === 'listar') return api<{ usuarios: Usuario[] }>('/api/usuarios')
+    if (acao === 'listar') return api<{ usuarios: Usuario[]; obras: ObraOpcao[] }>('/api/usuarios')
     if (acao === 'criar') return api('/api/usuarios', { method: 'POST', json: dados })
     if (acao === 'remover') return api(`/api/usuarios/${id}`, { method: 'DELETE' })
     return api(`/api/usuarios/${id}`, { method: 'PATCH', json: resto }) // 'papel' e 'senha'
@@ -80,8 +83,9 @@ export function Configuracoes({ papel, meuId, meuEmail, onFechar }: Props) {
 
   const carregar = useCallback(async () => {
     try {
-      const data = (await chamar('listar')) as { usuarios: Usuario[] }
+      const data = (await chamar('listar')) as { usuarios: Usuario[]; obras: ObraOpcao[] }
       setUsuarios(data.usuarios)
+      setObrasLista(data.obras)
       setErro('')
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar usuários.')
@@ -110,11 +114,13 @@ export function Configuracoes({ papel, meuId, meuEmail, onFechar }: Props) {
     e.preventDefault()
     const email = novoEmail.trim()
     const senha = senhaGerada
-    void executar('criar', { email, senha, papel: novoPapel }, () => {
+    if (novoPapel === 'cliente' && !novaObra) { setErro('Escolha a obra que este cliente vai acompanhar.'); return }
+    void executar('criar', { email, senha, papel: novoPapel, obras: novoPapel === 'cliente' ? [novaObra] : [] }, () => {
       setCriado({ email, senha })
       setCopiado(false)
       setNovoEmail('')
       setNovoPapel('leitor')
+      setNovaObra('')
       setSenhaGerada(gerarSenha())
     })
   }
@@ -153,7 +159,7 @@ export function Configuracoes({ papel, meuId, meuEmail, onFechar }: Props) {
         {ehAdmin && (
           <section className="cfg-section">
             <h3>Usuários e acessos</h3>
-            <p className="cfg-help">Administrador gerencia usuários e edita. Editor cadastra e altera obras. Somente consulta apenas visualiza.</p>
+            <p className="cfg-help">Administrador gerencia usuários e edita. Editor cadastra e altera obras e o financeiro. Somente consulta apenas visualiza o quadro. Cliente entra só no portal da própria obra.</p>
 
             {criado && (
               <div className="cfg-criado" role="status">
@@ -185,6 +191,12 @@ export function Configuracoes({ papel, meuId, meuEmail, onFechar }: Props) {
                     >
                       {(Object.keys(ROTULO) as PapelUsuario[]).map((p) => <option key={p} value={p}>{ROTULO[p]}</option>)}
                     </select>
+                    {u.papel === 'cliente' && (
+                      <select className="select" aria-label={`Obra de ${u.email}`} value={u.obras[0] ?? ''} disabled={ocupado} onChange={(e) => void executar('obras', { id: u.id, obras: e.target.value ? [e.target.value] : [] })}>
+                        <option value="">Sem obra</option>
+                        {obrasLista.map((o) => <option key={o.id} value={o.id}>{o.titulo}</option>)}
+                      </select>
+                    )}
                     <button type="button" className="icon-btn" title="Definir nova senha provisória" aria-label={`Nova senha para ${u.email}`} disabled={ocupado} onClick={() => redefinirSenha(u)}><KeyRound /></button>
                     <button type="button" className="icon-btn danger" title={sou ? 'Você não pode remover a si mesmo' : 'Remover acesso'} aria-label={`Remover ${u.email}`} disabled={sou || ocupado} onClick={() => remover(u)}><Trash2 /></button>
                   </div>
@@ -205,6 +217,15 @@ export function Configuracoes({ papel, meuId, meuEmail, onFechar }: Props) {
                     {(Object.keys(ROTULO) as PapelUsuario[]).map((p) => <option key={p} value={p}>{ROTULO[p]}</option>)}
                   </select>
                 </div>
+                {novoPapel === 'cliente' && (
+                  <div className="field">
+                    <label htmlFor="novo-obra">Obra do cliente</label>
+                    <select id="novo-obra" className="select" required value={novaObra} onChange={(e) => setNovaObra(e.target.value)}>
+                      <option value="">Escolha a obra</option>
+                      {obrasLista.map((o) => <option key={o.id} value={o.id}>{o.titulo}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div className="field">
                   <label htmlFor="novo-senha">Senha provisória</label>
                   <div className="cfg-senha">

@@ -1,37 +1,18 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, CalendarDays, Camera, FolderOpen, User, CheckSquare, Flag, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
+import { Wallet, Archive, CalendarDays, Camera, FolderOpen, User, CheckSquare, Flag, ChevronLeft, ChevronRight, Clock3, ExternalLink, HardHat, ImagePlus, LogOut, MapPin, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Login } from '@/components/login'
 import { Configuracoes } from '@/components/configuracoes'
 import { ObrasFinalizadas } from '@/components/obras-finalizadas'
+import { PortalCliente } from '@/components/portal-cliente'
+import { FinanceiroObra } from '@/components/financeiro-obra'
+import { STAGES, ATIVIDADES, LINK_ETAPAS, IMAGENS_3D, PASTAS_DRIVE, DEFAULT_SLA, type Stage, type Sla } from '@/lib/etapas'
 
-type Papel = 'admin' | 'editor' | 'leitor'
+export { STAGES }
 
-export const STAGES = ['PROJETO', 'APROVAÇÃO', 'SERVIÇOS PRELIMINARES', 'FUNDAÇÃO', 'ESTRUTURA', 'ALVENARIA', 'INSTALAÇÕES', 'REBOCO', 'GESSO', 'PINTURA', 'REVESTIMENTOS', 'ESQUADRIAS', 'ACABAMENTOS'] as const
-type Stage = (typeof STAGES)[number]
-
-/** Atividades de cada etapa. Cada uma ganha uma caixa de marcação; as de etapas em LINK_ETAPAS ganham também o link do Drive. */
-const ATIVIDADES: Record<Stage, readonly string[]> = {
-  'PROJETO': ['Arquitetônico', 'Hidrossanitário', 'Elétrico', 'Estrutural'],
-  'APROVAÇÃO': ['Condomínio', 'Prefeitura', 'Banco / Crédito'],
-  'SERVIÇOS PRELIMINARES': ['Topografia', 'Gabarito', 'Movimentação de terra', 'Infra (Barraco/Banheiro)', 'Água', 'Energia Elétrica'],
-  'FUNDAÇÃO': ['Marcação', 'Estacas', 'Blocos'],
-  'ESTRUTURA': ['Primeiro Pavimento', 'Segundo Pavimento', 'Cobertura'],
-  'ALVENARIA': ['Primeiro Pavimento', 'Segundo Pavimento', 'Cobertura'],
-  'INSTALAÇÕES': ['Pluvial', 'Esgoto', 'Hidráulica', 'Elétrica'],
-  'REBOCO': ['Reboco Interno', 'Reboco Externo'],
-  'GESSO': ['Primeiro Pavimento', 'Segundo Pavimento'],
-  'PINTURA': ['Preparação', 'Emassamento', 'Pintura'],
-  'REVESTIMENTOS': ['Paredes Internas', 'Paredes Externas', 'Piso Térreo', 'Piso Superior', 'Soleiras'],
-  'ESQUADRIAS': ['Portas Internas', 'Portas Externas', 'Janelas', 'Guarda-Corpos', 'Vistas e Rodapés'],
-  'ACABAMENTOS': [],
-}
-const LINK_ETAPAS: readonly Stage[] = ['PROJETO']
-/** Pastas do Drive da etapa PROJETO: as atividades do projeto + as imagens 3D (que só têm link, sem caixa de marcação). */
-const IMAGENS_3D = 'IMAGENS 3D'
-const PASTAS_DRIVE: readonly string[] = [...ATIVIDADES.PROJETO, IMAGENS_3D]
+type Papel = 'admin' | 'editor' | 'leitor' | 'cliente'
 
 /** Estado de cada atividade, guardado por obra com a chave `etapa|atividade`. */
 type Atividade = { feita: boolean; link?: string; /** ISO: quando foi marcada como concluída. */ em?: string }
@@ -165,25 +146,6 @@ function caminhoNoServidor(url: string): string | null {
 function formatarData(iso: string) {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).format(d)
-}
-
-/** Prazo esperado, em dias, para cada etapa (0 = sem prazo). */
-type Sla = Record<Stage, number>
-
-const DEFAULT_SLA: Sla = {
-  'PROJETO': 30,
-  'APROVAÇÃO': 45,
-  'FUNDAÇÃO': 20,
-  'SERVIÇOS PRELIMINARES': 15,
-  'ESTRUTURA': 45,
-  'ALVENARIA': 45,
-  'INSTALAÇÕES': 30,
-  'REBOCO': 20,
-  'GESSO': 15,
-  'PINTURA': 20,
-  'REVESTIMENTOS': 45,
-  'ESQUADRIAS': 15,
-  'ACABAMENTOS': 30,
 }
 
 const emptyDraft: Draft = { nomeObra: '', endereco: '', condominio: '', lote: '', area: '', pavimentos: '', lazer: false, piscina: false, spa: false, cliente: '', contato1: '', contato2: '', inicio: '', previsao: '', detalhes: '', empreiteiros: {}, etapa: 'PROJETO', fotos: [], atividades: {} }
@@ -428,6 +390,8 @@ export function ObrasBoard() {
   const podeEditar = papel === 'editor' || papel === 'admin'
   const [configAberta, setConfigAberta] = useState(false)
   const [finalizadasAberta, setFinalizadasAberta] = useState(false)
+  const [finObra, setFinObra] = useState<{ id: string; titulo: string } | null>(null)
+  const [previaObra, setPreviaObra] = useState<string | null>(null)
   const clienteId = useRef(newId())
   const logado = !!usuario
 
@@ -453,7 +417,7 @@ export function ObrasBoard() {
 
   // Carga inicial.
   useEffect(() => {
-    if (!logado) return
+    if (!logado || usuario?.papel === 'cliente') return
     let alive = true
     void api<{ dados: unknown }>('/api/board')
       .then((r) => {
@@ -473,7 +437,7 @@ export function ObrasBoard() {
         setLoaded(true)
       })
     return () => { alive = false }
-  }, [logado])
+  }, [logado, usuario?.papel])
 
   // Tempo real entre telas (SSE). O navegador reconecta sozinho se a conexão cair.
   useEffect(() => {
@@ -664,6 +628,8 @@ export function ObrasBoard() {
 
   if (usuario === undefined) return <div className="auth-page"><p className="auth-carregando">Carregando…</p></div>
   if (!usuario) return <Login onEntrou={() => { setLoaded(false); void api<{ usuario: { id: string; email: string; papel: Papel } | null }>('/api/auth/me').then((r) => setUsuario(r.usuario)) }} />
+
+  if (usuario.papel === 'cliente') return <PortalCliente usuario={usuario} onSair={() => void sair()} />
 
   const emailLogado = usuario.email
 
@@ -909,6 +875,7 @@ export function ObrasBoard() {
             </div>
             </div>
             <div className="modal-actions">
+              {draft.id && <button type="button" className="btn-ghost" onClick={() => setFinObra({ id: draft.id as string, titulo: draft.nomeObra.trim() || draft.cliente || 'Obra' })}><Wallet aria-hidden="true" /> Financeiro</button>}
               {podeEditar && draft.id && <button type="button" className="btn-danger" onClick={excluir}><Trash2 aria-hidden="true" /> Excluir</button>}
               <span className="spacer" />
               {podeEditar && draft.id && draft.etapa === 'ACABAMENTOS' && obras.find((o) => o.id === draft.id)?.etapa === 'ACABAMENTOS' && (
@@ -1023,6 +990,22 @@ export function ObrasBoard() {
           }}
           onFechar={() => setFinalizadasAberta(false)}
         />
+      )}
+
+      {finObra && (
+        <FinanceiroObra
+          obraId={finObra.id}
+          titulo={finObra.titulo}
+          podeEditar={podeEditar}
+          onFechar={() => setFinObra(null)}
+          onPrevia={() => setPreviaObra(finObra.id)}
+        />
+      )}
+
+      {previaObra && (
+        <div className="previa-portal">
+          <PortalCliente previaObraId={previaObra} onVoltar={() => setPreviaObra(null)} />
+        </div>
       )}
 
       {toast && <div className="toast" role="status">{toast}</div>}

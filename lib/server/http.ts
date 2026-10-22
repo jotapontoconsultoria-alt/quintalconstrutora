@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { usuarioAtual, type Papel, type Usuario } from './auth'
+import { EQUIPE, usuarioAtual, type Papel, type Usuario } from './auth'
 
 export const erro = (mensagem: string, status = 400) => NextResponse.json({ erro: mensagem }, { status })
 
@@ -15,12 +15,12 @@ export function mesmaOrigem(req: Request) {
   }
 }
 
-/** Exige login (e, opcionalmente, um dos perfis). Devolve o usuário ou uma resposta de erro pronta. */
-export async function exigir(req: Request, papeis?: Papel[]): Promise<Usuario | NextResponse> {
+/** Exige login e um dos perfis. Sem a lista, vale só para a equipe: o cliente precisa ser liberado de forma explícita. */
+export async function exigir(req: Request, papeis: Papel[] = EQUIPE): Promise<Usuario | NextResponse> {
   if (req.method !== 'GET' && !mesmaOrigem(req)) return erro('Origem não permitida.', 403)
   const u = await usuarioAtual()
   if (!u) return erro('Sessão expirada. Entre novamente.', 401)
-  if (papeis && !papeis.includes(u.papel)) return erro('Você não tem permissão para isso.', 403)
+  if (!papeis.includes(u.papel)) return erro('Você não tem permissão para isso.', 403)
   return u
 }
 
